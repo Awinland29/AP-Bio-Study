@@ -1,0 +1,23 @@
+# Render Blueprint: password-protected personal AP Biology website.
+# Paid Starter service + persistent disk required for uploads and SQLite history.
+services:
+  - type: web
+    name: ap-biology-study-studio
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    envVars:
+      - key: APBIO_PUBLIC
+        value: '1'
+      - key: APBIO_DATA_DIR
+        value: /var/data
+      - key: APBIO_ADMIN_USERNAME
+        value: student
+      - key: APBIO_ADMIN_PASSWORD
+        sync: false
+    disk:
+      name: apbio-study-data
+      mountPath: /var/data
+      sizeGB: 1

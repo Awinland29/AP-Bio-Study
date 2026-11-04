@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#f5f7f5" />
+  <meta name="description" content="A source-grounded, personal AP Biology study workspace" />
+  <title>Biology Studio · Your AP Bio workspace</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div id="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand"><div class="brand-glyph">✳</div><div><strong>biosphere<span class="brand-dot">.</span></strong><small>AP BIOLOGY STUDIO</small></div></div>
+      <div class="sidebar-label">WORKSPACE</div>
+      <nav id="sidebar-nav" aria-label="Primary navigation">
+        <button class="nav-item active" data-nav="overview"><span class="nav-icon">◫</span> Overview</button>
+        <button class="nav-item" data-nav="library"><span class="nav-icon">▤</span> My Library</button>
+        <button class="nav-item" data-nav="cards"><span class="nav-icon">▣</span> Flashcards <span id="nav-due" class="nav-count" hidden></span></button>
+        <button class="nav-item" data-nav="practice"><span class="nav-icon">◉</span> Practice & Tests</button>
+        <button class="nav-item" data-nav="guides"><span class="nav-icon">≡</span> Study Guides</button>
+        <button class="nav-item" data-nav="tutor"><span class="nav-icon">✧</span> AI Tutor</button>
+        <button class="nav-item" data-nav="progress"><span class="nav-icon">▥</span> My Progress</button>
+      </nav>
+      <div class="sidebar-label side-second">AP BIO TOOLKIT</div>
+      <nav aria-label="Learning utilities">
+        <button class="nav-item" data-nav="lab"><span class="nav-icon">⌁</span> Lab Bench</button>
+        <button class="nav-item" data-nav="planner"><span class="nav-icon">▦</span> Study Planner</button>
+      </nav>
+      <div class="side-bottom">
+        <div class="local-indicator"><span class="local-dot"></span><span>Private local workspace</span></div>
+        <button class="nav-item" data-nav="settings"><span class="nav-icon">⚙</span> Settings & Backup</button>
+      </div>
+    </aside>
+    <div class="main-column">
+      <header class="topbar">
+        <div class="topbar-left"><button class="menu-button" id="menu-toggle" aria-label="Toggle menu">☰</button><span class="topbar-trail">MY WORKSPACE <span>/</span> <strong id="breadcrumb">OVERVIEW</strong></span></div>
+        <div class="topbar-right"><span id="today-label" class="date-label"></span><button class="theme-button" data-action="theme" title="Toggle theme" aria-label="Toggle dark mode">◐</button><div class="avatar">AB</div></div>
+      </header>
+      <main class="content" id="main" tabindex="-1"><div class="loading-state">Opening your study workspace…</div></main>
+    </div>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <div id="modal-root"></div>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>
