@@ -124,6 +124,9 @@ def init():
         );
         ''')
 
+    from study_extras import prepare_schema
+    prepare_schema(db)
+
 init()
 app = FastAPI(title='AP Biology Study Studio', version='1.0.0')
 
@@ -270,8 +273,8 @@ def source_rows(unit_id=None, material_ids=None):
             args.append(unit_id)
         return items(query, tuple(args))
     if unit_id:
-        return items('SELECT * FROM materials WHERE unit_id=?', (unit_id,))
-    return items('SELECT * FROM materials')
+        return items("SELECT * FROM materials WHERE unit_id=? AND kind IN ('notes','reference')", (unit_id,))
+    return items("SELECT * FROM materials WHERE kind IN ('notes','reference')")
 
 
 def candidates(rows, max_count=140):
@@ -531,7 +534,7 @@ async def upload_material(files:list[UploadFile]=File(...),unit_id:str=Form(''),
         (UPLOADS/store).write_bytes(content)
         txt,status=extract_file(name,content)
         with db() as c:
-            c.execute('INSERT INTO materials VALUES (?,?,?,?,?,?,?,?,?,?)',
+            c.execute('INSERT INTO materials(id,unit_id,topic,lesson,filename,store_name,text,extraction_status,size_bytes,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
                       (fid,unit_id or None,clean(topic)[:150],clean(lesson)[:150],name,store,txt,status,len(content),now()))
         results.append({'id':fid,'filename':name,'extraction_status':status,'text_chars':len(txt)})
     return {'results':results}
@@ -1060,7 +1063,7 @@ def ai_cards(body:dict):
 
 @app.get('/api/export')
 def export_json():
-    content={table:items(f'SELECT * FROM {table}') for table in ('units','materials','cards','quizzes','reviews','tasks','chat','issues','guides')}
+    content={table:items(f'SELECT * FROM {table}') for table in ('units','materials','cards','quizzes','reviews','tasks','chat','issues','guides','lab_reports','frq_attempts')}
     return Response(json.dumps(content,indent=2),media_type='application/json',
                     headers={'Content-Disposition':'attachment; filename="ap-bio-study-export.json"'})
 
@@ -1135,7 +1138,7 @@ async def restore_backup(file: UploadFile=File(...), confirmation: str=Form(''))
                             for table in required:
                                 restored_cols=[r[1] for r in c.execute('PRAGMA table_info('+table+')')]
                                 current_cols=[r[1] for r in current.execute('PRAGMA table_info('+table+')')]
-                                if restored_cols!=current_cols:
+                                if restored_cols!=current_cols and not (table=='materials' and restored_cols==[x for x in current_cols if x!='kind']):
                                     die('Backup uses an incompatible study database version.')
                         stored={r[0] for r in c.execute('SELECT store_name FROM materials')}
                         if stored!={p.name for p in new_uploads.iterdir()}:
@@ -1161,8 +1164,13 @@ async def restore_backup(file: UploadFile=File(...), confirmation: str=Form(''))
                     raise
         except zipfile.BadZipFile:
             die('Not a valid ZIP backup.')
+    from study_extras import prepare_schema
+    prepare_schema(db)  # Upgrade legacy backups without losing existing study work.
     return {'ok':True,'note':'Complete backup restored. Refresh the page to view the restored data.'}
 
+
+from study_extras import install as install_study_extras
+install_study_extras(app, globals())
 
 app.mount('/static',StaticFiles(directory=ROOT/'static'),name='static')
 

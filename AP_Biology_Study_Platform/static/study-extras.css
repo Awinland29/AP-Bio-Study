@@ -1,0 +1,11 @@
+/* Course Resources, Lab Reports and FRQ Practice: intentionally minimal and mobile-first */
+.resource-promo{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;background:var(--faint);border:1px solid var(--border);border-radius:14px;padding:19px 22px;margin:0 0 20px}
+.resource-promo h3{font-size:19px;margin:5px 0}.resource-promo p{max-width:720px;margin:7px 0 0;font-size:14px;color:var(--muted);line-height:1.55}
+.resource-feature .resource-row{padding:12px 0}.resource-row .actions{gap:6px;flex-wrap:wrap}
+.lab-checklist{margin:14px 0 4px;padding-left:25px;line-height:1.85;color:var(--text)}
+.lab-field .field{gap:8px}.lab-field .field small{line-height:1.5}.lab-field textarea{min-height:120px}
+.lab-editor-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center;position:sticky;bottom:8px;padding:10px;background:var(--surface);border:1px solid var(--border);border-radius:12px;margin:8px 0;box-shadow:0 6px 20px rgba(0,0,0,.08);z-index:3}
+.frq-card h3{margin:14px 0 8px}.frq-card .btn{margin-top:14px}.frq-part p{margin:9px 0 13px;line-height:1.6}.frq-part textarea{min-height:110px}
+.rubric{margin-top:16px;padding:15px 17px;background:var(--faint);border-radius:12px;border:1px solid var(--border);display:flex;flex-direction:column;gap:11px;font-size:14px}
+.rubric .checkline{align-items:flex-start;line-height:1.5}.rubric .checkline input{margin-top:4px}
+@media(max-width:700px){.resource-promo{padding:15px}.resource-row{flex-wrap:wrap}.resource-row .actions{width:100%;padding-left:34px}.lab-editor-actions{bottom:0}.frq-card .chip{white-space:normal}}

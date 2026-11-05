@@ -8,6 +8,7 @@
   <title>Biology Studio · Your AP Bio workspace</title>
   <link rel="icon" type="image/png" sizes="64x64" href="/static/biosphere-icon.png?v=1" />
   <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="stylesheet" href="/static/study-extras.css?v=1" />
 </head>
 <body>
   <div id="app-shell">
@@ -17,8 +18,10 @@
       <nav id="sidebar-nav" aria-label="Primary navigation">
         <button class="nav-item active" data-nav="overview"><span class="nav-icon">◫</span> Overview</button>
         <button class="nav-item" data-nav="library"><span class="nav-icon">▤</span> My Library</button>
+        <button class="nav-item" data-nav="resources"><span class="nav-icon">§</span> Course Resources</button>
         <button class="nav-item" data-nav="cards"><span class="nav-icon">▣</span> Flashcards <span id="nav-due" class="nav-count" hidden></span></button>
         <button class="nav-item" data-nav="practice"><span class="nav-icon">◉</span> Practice & Tests</button>
+        <button class="nav-item" data-nav="frqs"><span class="nav-icon">✎</span> FRQ Practice</button>
         <button class="nav-item" data-nav="guides"><span class="nav-icon">≡</span> Study Guides</button>
         <button class="nav-item" data-nav="tutor"><span class="nav-icon">✧</span> AI Tutor</button>
         <button class="nav-item" data-nav="progress"><span class="nav-icon">▥</span> My Progress</button>
@@ -44,5 +47,6 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <div id="modal-root"></div>
   <script src="/static/app.js" defer></script>
+  <script src="/static/study-extras.js?v=1" defer></script>
 </body>
 </html>
