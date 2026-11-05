@@ -13,3 +13,15 @@
 @media(max-width:1100px){.stats-grid{grid-template-columns:repeat(2,1fr)}.two-col,.deck-layout{grid-template-columns:1fr}.content{padding:34px 27px 70px}.hero-art{font-size:62px}}
 @media(max-width:800px){#app-shell{grid-template-columns:1fr}.sidebar{position:fixed;left:0;top:0;bottom:0;width:244px;transform:translateX(-103%);box-shadow:8px 0 30px #0001;transition:transform .2s}.sidebar.open{transform:translateX(0)}.menu-button{display:block}.topbar{padding:0 22px;height:64px}.date-label{display:none}.content{padding:25px 18px 60px}.heading-row{flex-direction:column}.stats-grid{gap:11px}.metric{padding:17px}.metric-number{font-size:28px}.hero{padding:25px}.hero h2{font-size:22px}.hero-art{display:none}.two-even,.three-col,.question-layout{grid-template-columns:1fr}.form-grid{grid-template-columns:1fr}.form-grid .full{grid-column:auto}.heading-actions{width:100%}.table td,.table th{padding:10px 7px}.topbar-trail{font-size:9px}.rating-buttons{gap:5px}.rating-buttons .btn{font-size:11px;padding:10px 3px}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{transition:none!important;animation:none!important}}
+/* Audit refinements: daily-study focus, compact advanced options, honest storage alerts. */
+.storage-notice{display:flex;flex-wrap:wrap;align-items:center;gap:8px 15px;padding:15px 18px;margin:0 0 20px;border:1px solid #e7c78c;border-radius:12px;background:#fff6e5;color:#6e501b;font-size:13px}
+.storage-notice strong{color:#6e501b}.storage-notice span{flex:1 1 300px}.storage-notice .btn{border-color:#e4c58f;background:#fff;color:#6e501b}
+:root[data-theme='dark'] .storage-notice{background:#42341f;border-color:#715a35;color:#f2d49b}
+:root[data-theme='dark'] .storage-notice strong{color:#f2d49b}
+.advanced-settings,.deck-manager{width:100%}
+.advanced-settings summary,.deck-manager summary{color:var(--green-dark);font-weight:750;cursor:pointer;padding:12px 15px;border-radius:10px;border:1px solid var(--border);background:var(--faint);list-style-position:inside}
+.advanced-settings[open] summary,.deck-manager[open] summary{margin-bottom:16px}
+.advanced-settings .form-grid{padding:0 7px 10px}
+.deck-layout{grid-template-columns:minmax(0,1fr)}
+.deck-manager .mini-card-list{max-height:330px}
+@media(max-width:620px){.content{padding:17px 13px 50px}.heading-row{margin-bottom:17px}.hero{padding:20px}.card{padding:17px}.heading-actions .btn{white-space:normal}.storage-notice{padding:13px}.deck-action-row{gap:9px;flex-wrap:wrap}.tabs{max-width:100%;overflow:auto}.question-card{min-height:0}}

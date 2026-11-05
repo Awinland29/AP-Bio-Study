@@ -9,8 +9,11 @@ import os
 import random
 import re
 import secrets
+import shutil
 import sqlite3
+import tempfile
 import textwrap
+import threading
 import uuid
 import zipfile
 from datetime import datetime, timedelta, timezone
@@ -28,6 +31,7 @@ UPLOADS = DATA / 'uploads'
 DATA.mkdir(parents=True, exist_ok=True)
 UPLOADS.mkdir(parents=True, exist_ok=True)
 DB = DATA / 'study.sqlite3'
+RESTORE_LOCK = threading.Lock()
 AI_MODEL = os.environ.get('OPENAI_MODEL', 'gpt-4.1-mini')
 PUBLIC_MODE = os.environ.get('APBIO_PUBLIC', '').lower() in {'1', 'true', 'yes'}
 ADMIN_USERNAME = os.environ.get('APBIO_ADMIN_USERNAME', 'student')
@@ -257,7 +261,14 @@ def source_rows(unit_id=None, material_ids=None):
         if not material_ids:
             return []
         placeholders = ','.join('?' for _ in material_ids)
-        return items('SELECT * FROM materials WHERE id IN (' + placeholders + ')', tuple(material_ids))
+        # Preserve the unit constraint even if the client supplies file IDs;
+        # otherwise an apparently unit-specific guide or quiz can mix units.
+        query='SELECT * FROM materials WHERE id IN (' + placeholders + ')'
+        args=list(material_ids)
+        if unit_id:
+            query+=' AND unit_id=?'
+            args.append(unit_id)
+        return items(query, tuple(args))
     if unit_id:
         return items('SELECT * FROM materials WHERE unit_id=?', (unit_id,))
     return items('SELECT * FROM materials')
@@ -449,13 +460,28 @@ def bootstrap():
     now_str=now()
     due=sum(c['due_at']<=now_str for c in cards)
     reviewed=sum(c['reps']>0 for c in cards)
-    mastered=sum(c['reps']>=3 and c['ease']>=2.3 for c in cards)
+    # A count of button clicks is NOT evidence of mastery. Require three
+    # successful recent reviews on at least two separate dates.
+    recent=items('SELECT card_id,rating,reviewed_at FROM reviews ORDER BY reviewed_at DESC')
+    by_card={}
+    for r in recent:
+        if r['card_id'] and len(by_card.get(r['card_id'],[]))<3:
+            by_card.setdefault(r['card_id'],[]).append(r)
+    mastered=sum(len(by_card.get(c['id'],[]))==3
+                 and all(r['rating'] in ('good','easy') for r in by_card[c['id']])
+                 and len({r['reviewed_at'][:10] for r in by_card[c['id']]})>=2
+                 for c in cards)
     completed=[a for a in attempts if a['status']=='submitted' and a.get('report')]
     scores=[a['report']['percent'] for a in completed if a['report'].get('percent') is not None]
+    # /tmp is ephemeral on common free hosts (including Render free). This is
+    # informational, never a promise that a given provider will retain data.
+    durability=('temporary' if PUBLIC_MODE and (str(DATA).startswith('/tmp/') or DATA == Path('/tmp'))
+                else 'unverified' if PUBLIC_MODE else 'local')
     return {'units':units,'materials':materials,'cards':cards,'attempts':attempts,'tasks':tasks,'guides':guides,
             'stats':{'materials':len(materials),'cards':len(cards),'due':due,'reviewed':reviewed,
                      'mastered':mastered,'completed':len(completed),'average':round(sum(scores)/len(scores)) if scores else None},
-            'ai_enabled':bool(os.environ.get('OPENAI_API_KEY')), 'public_mode':PUBLIC_MODE}
+            'ai_enabled':bool(os.environ.get('OPENAI_API_KEY')), 'public_mode':PUBLIC_MODE,
+            'data_durability':durability}
 
 
 @app.post('/api/units')
@@ -761,7 +787,7 @@ def get_quiz(id:str):
 
 def eval_question(q, value):
     typ=q['type'];ans=q['answer']
-    if typ=='mcq':return isinstance(value,int) and value==ans
+    if typ=='mcq':return type(value) is int and value==ans
     if typ=='tf':return value==ans
     if typ=='multi':return isinstance(value,list) and sorted(set(value))==sorted(ans)
     if typ=='fill':return normalize(value)==normalize(ans)
@@ -775,7 +801,9 @@ def make_report(questions,responses,manual_scores=None):
     for q in questions:
         resp=responses.get(q['id'])
         correct=eval_question(q,resp)
-        if q['type']=='short':correct=manual_scores.get(q['id'])
+        # A blank written answer is not awaiting self-review; it is unanswered.
+        if q['type']=='short':
+            correct=manual_scores.get(q['id']) if clean(str(resp or '')) else False
         details.append({'id':q['id'],'type':q['type'],'prompt':q['prompt'],'topic':q['topic'],
                         'source_name':q['source_name'],'material_id':q.get('material_id'),
                         'response':resp,'correct':correct,'answer':q['answer'],
@@ -1055,6 +1083,85 @@ def export_backup():
         z.writestr('RESTORE.txt','Stop the server. Replace data/study.sqlite3 and data/uploads/ with these archive contents. Restart the server.\n')
     return Response(mem.getvalue(),media_type='application/zip',
                     headers={'Content-Disposition':'attachment; filename="ap-bio-backup.zip"'})
+
+
+@app.post('/api/backup/restore')
+async def restore_backup(file: UploadFile=File(...), confirmation: str=Form('')):
+    """Restore one previously exported complete backup, with validation.
+
+    This is an intentional replace operation for one-person installations,
+    not a merge of unrelated users' data. We never extract arbitrary ZIP paths.
+    """
+    if confirmation != 'RESTORE':die('Type RESTORE to confirm replacing study data.')
+    archive=await file.read(125*1024*1024+1)
+    if not archive or len(archive)>125*1024*1024:
+        die('Backup ZIP is empty or exceeds 125 MB.')
+    required={'units','materials','cards','quizzes','guides','reviews','tasks','chat','issues'}
+    with RESTORE_LOCK:
+        try:
+            with zipfile.ZipFile(io.BytesIO(archive)) as z, tempfile.TemporaryDirectory(dir=DATA) as td:
+                target=Path(td)
+                info=z.infolist()
+                if len(info)>3000 or sum(x.file_size for x in info)>300*1024*1024:
+                    die('Backup contains too many or too-large files.')
+                names={x.filename for x in info if not x.is_dir()}
+                if len(names)!=sum(not x.is_dir() for x in info):
+                    die('Backup has duplicate file entries.')
+                if 'study.sqlite3' not in names:
+                    die('Not an AP Biology complete backup (database missing).')
+                for entry in info:
+                    name=entry.filename
+                    # Only the database, a restore note, and safe upload filenames
+                    # are part of our own full backups.
+                    allowed=name in ('study.sqlite3','RESTORE.txt','uploads/') or bool(
+                        re.fullmatch(r'uploads/[a-f0-9]{16}\.(?:pdf|pptx|docx|txt|md|csv|json|png|jpg|jpeg|webp)',name))
+                    if not allowed or (entry.external_attr >> 16) & 0o170000 == 0o120000:
+                        die('Backup has an unexpected or unsafe file.')
+                snapshot=target/'study.sqlite3'
+                snapshot.write_bytes(z.read('study.sqlite3'))
+                new_uploads=target/'new_uploads';new_uploads.mkdir()
+                for entry in info:
+                    if entry.filename.startswith('uploads/') and not entry.is_dir():
+                        (new_uploads/Path(entry.filename).name).write_bytes(z.read(entry))
+                try:
+                    with sqlite3.connect(f'file:{snapshot}?mode=ro',uri=True) as c:
+                        c.row_factory=sqlite3.Row
+                        if c.execute('PRAGMA integrity_check').fetchone()[0]!='ok':
+                            die('Backup database failed integrity verification.')
+                        existing={r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+                        if not required.issubset(existing):
+                            die('Backup is missing required study tables.')
+                        with db() as current:
+                            for table in required:
+                                restored_cols=[r[1] for r in c.execute('PRAGMA table_info('+table+')')]
+                                current_cols=[r[1] for r in current.execute('PRAGMA table_info('+table+')')]
+                                if restored_cols!=current_cols:
+                                    die('Backup uses an incompatible study database version.')
+                        stored={r[0] for r in c.execute('SELECT store_name FROM materials')}
+                        if stored!={p.name for p in new_uploads.iterdir()}:
+                            die('Backup is incomplete: material files do not match its database.')
+                except sqlite3.DatabaseError:
+                    die('Backup database is invalid or damaged.')
+                # Preserve an immediate rollback snapshot until the replacement
+                # has completed. Existing app connections are short-lived.
+                previous=target/'previous.sqlite3'
+                with sqlite3.connect(previous) as old, db() as original:
+                    original.backup(old)
+                previous_uploads=target/'previous_uploads'
+                UPLOADS.rename(previous_uploads)
+                try:
+                    new_uploads.rename(UPLOADS)
+                    with sqlite3.connect(snapshot) as source, db() as current:
+                        source.backup(current)
+                except Exception:
+                    if UPLOADS.exists():shutil.rmtree(UPLOADS)
+                    previous_uploads.rename(UPLOADS)
+                    with sqlite3.connect(previous) as source, db() as current:
+                        source.backup(current)
+                    raise
+        except zipfile.BadZipFile:
+            die('Not a valid ZIP backup.')
+    return {'ok':True,'note':'Complete backup restored. Refresh the page to view the restored data.'}
 
 
 app.mount('/static',StaticFiles(directory=ROOT/'static'),name='static')

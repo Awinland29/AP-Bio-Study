@@ -67,7 +67,7 @@ When the API is active, relevant excerpts from uploaded material and your questi
 - `data/uploads/`: the original uploaded files
 - Browser local storage: temporary quiz answers, theme preference, and lab draft
 
-To **restore a backup**, stop the server, unzip the downloaded backup and replace `data/study.sqlite3` and `data/uploads/` with the files from the archive, then restart. **Keep a copy of the previous data first.** The database is initialized on first run; do not delete it unless you intend to reset everything.
+To **restore a backup**, open **Settings & Backup → Restore a complete backup**, select a previously downloaded complete ZIP, and type `RESTORE`. This replaces all current study records and uploaded originals with the backed-up version, so download a backup of current data first. Database files should not be changed by hand on a running server.
 
 ## Important limitations and privacy
 
@@ -79,50 +79,19 @@ To **restore a backup**, stop the server, unzip the downloaded backup and replac
 - Browser session answers and lab drafts may disappear if browser storage is cleared. Submit quizzes and download lab notes to preserve important work.
 - Class materials currently in **this ChatGPT Project** are not automatically available to the separately running website. The installation starts with an empty source library.
 
-## Deploy as a private study website with a public HTTPS URL (Render)
+## Current GitHub + Render deployment
 
-**This step requires your own Render account and approval of any charges.** The
-`render.yaml` Blueprint uses the **paid Starter** web service with a 1 GB
-persistent disk. The free Render web service cannot preserve the local SQLite
-database or uploaded files across restarts. Check current pricing before you
-approve a deployment. Render supplies a live `https://...onrender.com` URL once
-its deployment finishes; no domain/URL is pre-created by this downloaded ZIP.
+The public site is deployed from the existing `Awinland29/AP-Bio-Study` GitHub repository. **The `render.yaml` at the repository ROOT** controls your Render deployment plan. The user has selected Render **Free**; this release's update-only ZIP intentionally does not include or change that file. An older `render.yaml` *inside* `AP_Biology_Study_Platform/` was part of an earlier template and may describe a paid configuration; do not use it to replace the root Blueprint.
 
-1. Create a **private GitHub repository** and upload the *contents* of this
-   `AP_Biology_Study_Platform` folder, including `render.yaml` and `main.py`.
-   `.gitignore` excludes your study database and uploaded teacher materials.
-   Do not commit API keys, passwords, database files, student information or
-   teacher materials.
-2. Sign in to [Render](https://dashboard.render.com/), connect your GitHub
-   account, and select **New → Blueprint**. Choose your repository. Review the
-   requested paid Starter service and persistent disk before approval.
-3. Render prompts for **APBIO_ADMIN_PASSWORD**. Enter a unique password at
-   least 16 characters long; save it in your password manager. Username defaults
-   to `student` (change **APBIO_ADMIN_USERNAME** in Render Environment to
-   customize it). Do not paste passwords in ChatGPT.
-4. After Render reports the site live, open the HTTPS URL it actually supplies.
-   Your browser prompts for the username and password. The whole website,
-   including downloads, is protected with HTTP Basic authentication. Do not
-   disable the authentication middleware or expose the app via plain HTTP.
-5. Create units and upload the materials from your local website again, or
-   restore manually if you have a previous backup. There is no automatic local
-   or ChatGPT Project sync. To add optional tutoring, configure `OPENAI_API_KEY`
-   **only in Render's secret Environment settings**; a separate paid API account
-   is required.
-6. Use **Settings → Download complete backup** regularly. A disk offers
-   persistence, not a substitute for your own backups. Restore currently
-   requires access to the server's files and restarting it.
+To publish an audited code update, keep the free Blueprint and commit the updated app files (`AP_Biology_Study_Platform/main.py`, `static/app.js`, `static/styles.css`) in the existing repo. Render auto-deploys GitHub `main` changes; check the web service's status and logs to confirm success. Before updating, download a complete backup from the current live website.
 
-**Security scope:** This is a single-user, password-protected personal study
-site, not a multi-user school portal. Render terminates HTTPS. The application
-requires a strong password for public mode, rejects cross-site write requests,
-and never exposes its AI key in frontend code. Use only with permission to
-upload your teacher's materials to a third-party hosting provider. Anyone who
-knows your password can access your notes and progress; change it in Render
-if it's exposed. On first deploy there are no default study materials.
+For a new installation, `APBIO_PUBLIC=1` requires the server environment variables `APBIO_ADMIN_USERNAME` and `APBIO_ADMIN_PASSWORD` (at least 16 characters), plus `APBIO_DATA_DIR`. Set passwords in Render **Environment**, never GitHub. `APBIO_DATA_DIR` under `/tmp` works for launching a free demonstration but **does not preserve your data across redeploys/restarts**. New releases support browser-based **Settings & Backup → Restore complete backup** to recover from a ZIP you kept elsewhere.
 
-**If you do not want hosting charges:** keep using the local version. A stable
-free hosting setup for this SQLite-plus-file-upload architecture is not included.
+**Security scope:** The site has one HTTP Basic authentication gate over HTTPS, not separate user accounts or school-grade authorization. Anyone with the password can access uploads, notes and progress. Never put passwords, API keys or genuine class backups into GitHub.
+
+**Optional AI:** Set `OPENAI_API_KEY` only in the host environment when an eligible separately billed account is available. ChatGPT Plus is not an API subscription. If disabled, ordinary local study features still work and no artificial tutoring responses are shown.
+
+**Data limitation:** No guarantee of year-long progress retention is possible on the current temporary Render Free filesystem. To guarantee persistence, use an eligible paid Render disk or implement a properly managed external database and file storage service.
 
 ---
 
@@ -136,3 +105,15 @@ The app uses FastAPI + SQLite + plain HTML/CSS/JavaScript. For regression checks
 ```
 
 All tests use isolated temporary databases, so they don't touch your study records. The frontend intentionally has no JavaScript framework build step. To change the appearance, edit `static/styles.css`; to adjust study features, edit `static/app.js` or `main.py` and restart.
+
+---
+
+## November 2026 reliability audit update
+
+This source tree adds backup *restoration*, truthful Render Free warnings, multi-day mastery checks, faster flashcard reviewing, smaller default quiz setup, preserved question flags, and stricter handling of unanswered written responses. See `AUDIT_REPORT.md` for complete testing and limitations.
+
+**If using Render Free:** Your `APBIO_DATA_DIR` under `/tmp/` is **not persistent**. Download a full ZIP backup frequently and keep it off the server. After data loss, use **Settings & Backup → Restore a complete backup**. Restoration replaces any current data with the contents of the chosen ZIP. This release adds a restore form; older versions could only export.
+
+**Never upload any API keys, password values, real saved student data or backup ZIPs to a public GitHub repository.** Keep environment secrets in Render's Environment page. The standalone update ZIP does not contain `render.yaml`, so it does not change your plan.
+
+Audit test commands: `python -m pytest -q` (the `tests/audit_browser.py` smoke test additionally needs Playwright and Chromium installed).
