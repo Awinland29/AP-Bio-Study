@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 from fastapi import File, Form, UploadFile
 
-RESOURCE_KINDS = {'notes', 'syllabus', 'reference', 'lab', 'frq'}
+RESOURCE_KINDS = {'notes', 'syllabus', 'reference', 'lab', 'frq', 'schedule', 'assignments'}
 LAB_FIELDS = ('question', 'hypothesis', 'independent', 'dependent', 'controls',
               'procedure', 'data', 'analysis', 'conclusion', 'limitations', 'sources')
 
