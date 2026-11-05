@@ -46,6 +46,8 @@ def main():
   html=html.replace('<script src="/static/app.js" defer></script>',f'<script>{SHIM}</script><script>{appjs}</script>')
   html=html.replace('<script src="/static/study-extras.js?v=1" defer></script>',f'<script>{(ROOT/'static/study-extras.js').read_text()}</script>')
   html=html.replace('<link rel="stylesheet" href="/static/study-extras.css?v=1" />',f'<style>{(ROOT/'static/study-extras.css').read_text()}</style>')
+  html=html.replace('<script src="/static/study-schedule.js?v=1" defer></script>',f'<script>{(ROOT/'static/study-schedule.js').read_text()}</script>')
+  html=html.replace('<link rel="stylesheet" href="/static/study-schedule.css?v=1" />',f'<style>{(ROOT/'static/study-schedule.css').read_text()}</style>')
   events=[]
   def bridge(source,payload):
    path=payload['path'];method=payload['method']
@@ -123,6 +125,23 @@ def main():
    page.get_by_text('Review photosynthesis').first.wait_for()
    page.locator('[data-role="task-toggle"]').first.check()
    print('PASS Study planner')
+   page.locator('[data-nav="schedule"]').click()
+   page.get_by_role('heading',name='Assignments & Schedule').wait_for()
+   page.locator('form[data-schedule-form="item"] input[name="title"]').fill('Submit Enzyme Lab')
+   page.locator('form[data-schedule-form="item"] input[name="due_date"]').fill('2026-11-20')
+   page.locator('form[data-schedule-form="item"] button[type="submit"]').click()
+   page.get_by_text('Submit Enzyme Lab').first.wait_for(timeout=6000)
+   assert client.get('/api/schedule').json()['entries'][0]['title']=='Submit Enzyme Lab'
+   page.locator('form[data-schedule-form="import"] input[name="file"]').set_input_files({'name':'assignments.csv','mimeType':'text/csv','buffer':b'Title,Due Date,Type\nUnit 4 exam,2026-11-22,Test\n'})
+   page.locator('form[data-schedule-form="import"] button[type="submit"]').click()
+   page.get_by_text('Unit 4 exam').first.wait_for(timeout=6000)
+   page.locator('form[data-schedule-form="classroom"] input[name="url"]').fill('https://classroom.google.com/c/123')
+   page.locator('form[data-schedule-form="classroom"] button[type="submit"]').click()
+   page.get_by_text('Open Classroom').first.wait_for(timeout=6000)
+   assert not client.get('/api/schedule').json()['sync_enabled']
+   page.locator('[data-schedule-action="toggle"]').first.check()
+   assert any(x['done'] for x in client.get('/api/schedule').json()['entries'])
+   print('PASS Schedule CRUD, CSV import, classroom shortcut and status')
    page.locator('[data-nav="tutor"]').click()
    page.get_by_text('AI CONNECTION NEEDED').first.wait_for()
    assert page.locator('form[data-form="tutor"] button[type=submit]').is_disabled()
@@ -190,7 +209,7 @@ def main():
    overflow=mobile.evaluate('document.documentElement.scrollWidth > window.innerWidth + 3')
    assert not overflow,'Mobile horizontal overflow'
    print('PASS Mobile menu, no page overflow')
-   for section in ['resources','frqs','lab']:
+   for section in ['resources','frqs','lab','schedule']:
     mobile.locator('#menu-toggle').click()
     mobile.locator('[data-nav="'+section+'"]').click()
     mobile.wait_for_timeout(160)

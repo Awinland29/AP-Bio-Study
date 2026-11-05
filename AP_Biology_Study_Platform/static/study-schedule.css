@@ -1,0 +1,25 @@
+/* A quiet, compact daily planner to complement Biosphere's existing UI. */
+.schedule-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:0 0 20px}
+.schedule-stats>div{display:flex;flex-direction:column;gap:5px;background:var(--surface);border:1px solid var(--border);border-radius:13px;padding:16px 18px}
+.schedule-stats strong{font-size:27px;color:var(--text);line-height:1}
+.schedule-stats span{font-size:12px;color:var(--muted)}
+.schedule-buttons,.schedule-filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.schedule-link{border-top:1px solid var(--border);margin-top:22px;padding-top:20px}
+.schedule-link h3{margin-bottom:7px}
+.schedule-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.schedule-list{padding-top:9px!important;padding-bottom:10px!important}
+.schedule-day{border-bottom:1px solid var(--border);padding:15px 0 9px}
+.schedule-day:last-child{border:0}
+.schedule-day-label{font-size:13px;font-weight:800;color:var(--text);text-transform:uppercase;letter-spacing:.045em;margin:0 0 8px;display:flex;gap:12px;align-items:center}
+.schedule-overdue{font-size:10px;color:#aa5b2c;border:1px solid currentColor;border-radius:9px;padding:2px 7px;letter-spacing:0;text-transform:none}
+.schedule-item{display:flex;align-items:flex-start;gap:13px;border-radius:11px;padding:13px 10px}
+.schedule-item:hover{background:var(--faint)}
+.schedule-item input[type=checkbox]{margin-top:7px;flex-shrink:0;width:17px;height:17px;accent-color:var(--green)}
+.schedule-item-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:7px}
+.schedule-item-top{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.schedule-item-top strong{font-size:14px;overflow-wrap:anywhere}
+.schedule-item-info small{color:var(--muted);font-size:11px}
+.schedule-detail{white-space:pre-wrap;font-size:13px;color:var(--muted);line-height:1.5;overflow-wrap:anywhere}
+.schedule-row-actions{display:flex;gap:5px;flex-wrap:wrap;justify-content:end}
+.schedule-done .schedule-item-top strong{text-decoration:line-through;opacity:.64}
+@media(max-width:720px){.schedule-stats{grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}.schedule-stats>div{padding:12px 10px}.schedule-stats strong{font-size:22px}.schedule-stats span{font-size:11px}.schedule-item{flex-wrap:wrap}.schedule-row-actions{width:100%;justify-content:start;padding-left:30px}.schedule-link .schedule-buttons .btn{flex:1 1 auto}}

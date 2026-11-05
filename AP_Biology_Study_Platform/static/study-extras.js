@@ -2,7 +2,7 @@
    Extends the existing app without replacing any of its study workflows. */
 'use strict';
 const extrasState={loaded:false,resources:{kinds:{},labs:[],frqs:[]},bank:[],labTab:'reports',labEditor:null,frqAttempt:null,showRubric:false,checks:new Set()};
-const extrasKinds={notes:'Class notes',syllabus:'Class syllabus',reference:'Reference material',lab:'Lab handout / rubric',frq:'FRQ / scoring guide'};
+const extrasKinds={notes:'Class notes',syllabus:'Class syllabus',reference:'Reference material',lab:'Lab handout / rubric',frq:'FRQ / scoring guide',schedule:'Class schedule',assignments:'Assignment list'};
 const labParts=[
  ['question','Research question','What are you trying to determine?'],
  ['hypothesis','Hypothesis / prediction','A testable prediction supported by biological reasoning'],
@@ -62,7 +62,7 @@ function resourcesPage(){
   if(!extrasState.loaded)return pageHeader('Course files','Course Resources','Could not load resource information. Refresh the website and try again.');
   const materials=state.data.materials;
   const syllabus=materials.filter(x=>x.kind==='syllabus');
-  const refs=materials.filter(x=>['reference','lab','frq'].includes(x.kind));
+  const refs=materials.filter(x=>['reference','lab','frq','schedule','assignments'].includes(x.kind));
   const resourceRow=m=>`<div class="list-row resource-row"><span class="unit-mark">${m.kind==='syllabus'?'§':m.kind==='frq'?'✎':m.kind==='lab'?'⚗':'▤'}</span>
     <div class="item-main"><strong>${e(m.filename)}</strong><small>${e(extrasKinds[m.kind])} · ${e(unitName(m.unit_id))}${m.text_chars?' · searchable text':' · original file saved (not text-searchable)'}</small></div>
     <div class="actions">${btn('view-file','View','secondary tiny',`data-id="${m.id}"`)}<a class="btn secondary tiny" href="/api/materials/${m.id}/file">Download</a><button class="btn secondary tiny" data-extras-action="resource-kind" data-id="${m.id}" title="Change category">⋯</button></div></div>`;
@@ -72,7 +72,7 @@ function resourcesPage(){
     <p class="small subtle">Keep the course overview and policies here so they’re easy to find.</p>
     ${syllabus.length?syllabus.map(resourceRow).join(''):empty('No syllabus uploaded','Choose “Class syllabus” below and upload the file from your computer.')}</section>
   <section class="card"><h3>Add course files</h3><form data-extras-form="resource-upload" class="stack">
-    <div class="field"><label for="ex-kind">File category</label><select id="ex-kind" class="select" name="kind"><option value="syllabus">Class syllabus</option><option value="reference" selected>Reference material</option><option value="lab">Lab handout / rubric</option><option value="frq">FRQ / scoring guide</option></select></div>
+    <div class="field"><label for="ex-kind">File category</label><select id="ex-kind" class="select" name="kind"><option value="syllabus">Class syllabus</option><option value="reference" selected>Reference material</option><option value="lab">Lab handout / rubric</option><option value="frq">FRQ / scoring guide</option><option value="schedule">Class schedule</option><option value="assignments">Assignment list</option></select></div>
     <div class="field"><label>Unit (optional)</label><select class="select" name="unit_id">${unitOptions('','Course-wide / no unit')}</select></div>
     <div class="field"><label>Topic / label (optional)</label><input class="input" name="topic" placeholder="e.g., Unit 3 equations" maxlength="150"></div>
     <div class="field"><label>Choose download(s) from your computer</label><input class="input" type="file" name="files" multiple required accept=".pdf,.pptx,.docx,.txt,.md,.csv,.json,.png,.jpg,.jpeg,.webp"></div>

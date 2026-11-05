@@ -117,3 +117,11 @@ This source tree adds backup *restoration*, truthful Render Free warnings, multi
 **Never upload any API keys, password values, real saved student data or backup ZIPs to a public GitHub repository.** Keep environment secrets in Render's Environment page. The standalone update ZIP does not contain `render.yaml`, so it does not change your plan.
 
 Audit test commands: `python -m pytest -q` (the `tests/audit_browser.py` smoke test additionally needs Playwright and Chromium installed).
+
+## Assignments & Schedule (Nov 2026)
+
+- The new **Assignments & Schedule** page stores actual assignments, tests, class events and dates. Marking an assignment completed changes Biosphere only, not the school's LMS.
+- Enter dates manually or import a UTF-8 `.csv` file with `Title,Due Date,Type,Start Time,End Time,Details,URL` columns; use `YYYY-MM-DD` or `MM/DD/YYYY` dates. Calendar `.ics` imports support regular event start/end times, but only the first instance of any recurring rule. Reimporting the same unchanged event is deduplicated.
+- Class schedules and assignment-list documents can also be uploaded in **Course Resources** as normal files. PDFs and screenshots are stored as reference files, not magically converted into dates.
+- The **Google Classroom link** field is only a shortcut to your class; it does **not** grant access or synchronize assignments. True Classroom sync requires a Google Cloud project, OAuth consent, Google API scopes and possibly approval from the school's Google Workspace administrator. Don't share login passwords with the website.
+- New `schedule_entries` and `schedule_links` tables are included in complete ZIP backups and JSON exports. Older backups are migrated on restore. On Render Free, `/tmp` storage remains ephemeral, so download a fresh backup after important edits.

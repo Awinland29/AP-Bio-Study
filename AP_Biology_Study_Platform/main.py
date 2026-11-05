@@ -126,6 +126,8 @@ def init():
 
     from study_extras import prepare_schema
     prepare_schema(db)
+    from schedule_extras import prepare_schema as prepare_schedule_schema
+    prepare_schedule_schema(db)
 
 init()
 app = FastAPI(title='AP Biology Study Studio', version='1.0.0')
@@ -1063,7 +1065,7 @@ def ai_cards(body:dict):
 
 @app.get('/api/export')
 def export_json():
-    content={table:items(f'SELECT * FROM {table}') for table in ('units','materials','cards','quizzes','reviews','tasks','chat','issues','guides','lab_reports','frq_attempts')}
+    content={table:items(f'SELECT * FROM {table}') for table in ('units','materials','cards','quizzes','reviews','tasks','chat','issues','guides','lab_reports','frq_attempts','schedule_entries','schedule_links')}
     return Response(json.dumps(content,indent=2),media_type='application/json',
                     headers={'Content-Disposition':'attachment; filename="ap-bio-study-export.json"'})
 
@@ -1166,11 +1168,15 @@ async def restore_backup(file: UploadFile=File(...), confirmation: str=Form(''))
             die('Not a valid ZIP backup.')
     from study_extras import prepare_schema
     prepare_schema(db)  # Upgrade legacy backups without losing existing study work.
+    from schedule_extras import prepare_schema as prepare_schedule_schema
+    prepare_schedule_schema(db)
     return {'ok':True,'note':'Complete backup restored. Refresh the page to view the restored data.'}
 
 
 from study_extras import install as install_study_extras
 install_study_extras(app, globals())
+from schedule_extras import install as install_schedule_extras
+install_schedule_extras(app, globals())
 
 app.mount('/static',StaticFiles(directory=ROOT/'static'),name='static')
 
