@@ -270,6 +270,7 @@ async def browser_workspace_access(request: Request, call_next):
     response.headers['Referrer-Policy']='same-origin'
     return response
 
+
 @app.get('/healthz')
 def hosting_health():
     return {'ok': True}
@@ -1187,7 +1188,7 @@ def export_backup():
             bak=Path(td)/'study.sqlite3'; backcon=sqlite3.connect(bak);temp.backup(backcon);backcon.close()
             z.write(bak,'study.sqlite3')
         temp.close()
-        for f in workspace_uploads().iterdir()
+        for f in workspace_uploads().iterdir():
             if f.is_file():z.write(f,'uploads/'+f.name)
         z.writestr('RESTORE.txt','Stop the server. Replace data/study.sqlite3 and data/uploads/ with these archive contents. Restart the server.\n')
     return Response(mem.getvalue(),media_type='application/zip',
