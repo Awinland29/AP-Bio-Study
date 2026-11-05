@@ -1071,6 +1071,17 @@ def export_json():
 
 
 @app.get('/api/backup')
+def explain_backup_download():
+    # Direct downloadable GET URLs can be requested repeatedly by link previewers,
+    # browser extensions and download managers. Require an explicit POST from the UI.
+    return Response(
+        json.dumps({'detail':'Open Settings & Backup and click Download complete backup to start one download.'}),
+        status_code=405, media_type='application/json',
+        headers={'Cache-Control':'no-store'}
+    )
+
+
+@app.post('/api/backup/download')
 def export_backup():
     mem=io.BytesIO()
     with zipfile.ZipFile(mem,'w',zipfile.ZIP_DEFLATED) as z:
@@ -1087,7 +1098,7 @@ def export_backup():
             if f.is_file():z.write(f,'uploads/'+f.name)
         z.writestr('RESTORE.txt','Stop the server. Replace data/study.sqlite3 and data/uploads/ with these archive contents. Restart the server.\n')
     return Response(mem.getvalue(),media_type='application/zip',
-                    headers={'Content-Disposition':'attachment; filename="ap-bio-backup.zip"'})
+                    headers={'Content-Disposition':'attachment; filename="ap-bio-backup.zip"', 'Cache-Control':'no-store'})
 
 
 @app.post('/api/backup/restore')

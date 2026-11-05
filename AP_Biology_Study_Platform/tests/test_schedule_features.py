@@ -73,7 +73,7 @@ def test_backup_restores_schedules_and_upgrades_legacy(client):
     c=client
     eid=c.post('/api/schedule',json={'title':'Final','due_date':'2026-12-15','kind':'exam'}).json()['id']
     c.put('/api/schedule/classroom-link',json={'url':'https://classroom.google.com/c/124'})
-    backup=c.get('/api/backup').content
+    backup=c.post('/api/backup/download').content
     c.delete('/api/schedule/'+eid)
     assert c.post('/api/backup/restore',data={'confirmation':'RESTORE'},files={'file':('backup.zip',backup,'application/zip')}).status_code==200
     assert any(x['id']==eid for x in c.get('/api/schedule').json()['entries'])
@@ -105,3 +105,27 @@ def test_upload_schedule_as_reference(client):
     id=r.json()['results'][0]['id']
     assert c.get('/api/extras/bootstrap').json()['kinds'][id]=='schedule'
     assert c.get('/api/materials/'+id+'/file').content==b'Period 1 at 8:00 AM'
+
+
+def test_backup_requires_explicit_post_and_returns_single_valid_archive(client):
+    """A speculative GET or HEAD cannot trigger a file attachment."""
+    c=client
+    for method in ("GET","HEAD"):
+        r=c.request(method,"/api/backup")
+        assert r.status_code == 405
+        assert "attachment" not in r.headers.get("content-disposition","")
+    r=c.post("/api/backup/download")
+    assert r.status_code==200
+    assert r.headers.get("content-type")=="application/zip"
+    assert "attachment" in r.headers.get("content-disposition","")
+    assert r.headers.get("cache-control")=="no-store"
+    with zipfile.ZipFile(io.BytesIO(r.content)) as backup:
+        assert "study.sqlite3" in backup.namelist()
+
+def test_backup_button_has_no_downloadable_get_url():
+    from pathlib import Path
+    appjs=(Path(__file__).parent.parent/"static/app.js").read_text()
+    assert 'data-action="download-backup"' in appjs
+    assert 'href="/api/backup"' not in appjs
+    assert "if(backupDownloading)return;" in appjs
+    assert "method:'POST',cache:'no-store'" in appjs

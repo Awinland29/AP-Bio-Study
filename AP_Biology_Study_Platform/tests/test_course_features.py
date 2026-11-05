@@ -83,7 +83,7 @@ def test_backup_restores_extra_tables_and_resource_categories(client):
     lab=c.post('/api/extras/labs',json={'title':'Osmosis report','sections':{'data':'Measured 2.5%'}}).json()['id']
     frq=c.post('/api/extras/frq-attempts',json={'prompt_id':'osmosis'}).json()['id']
     c.patch('/api/extras/frq-attempts/'+frq,json={'answers':{'a':'Mass gain decreases.'}})
-    backup=c.get('/api/backup').content
+    backup=c.post('/api/backup/download').content
     assert 'study.sqlite3' in zipfile.ZipFile(io.BytesIO(backup)).namelist()
     assert c.delete('/api/materials/'+fileid).status_code==200
     assert c.delete('/api/extras/labs/'+lab).status_code==200
@@ -102,7 +102,7 @@ def test_backup_restores_legacy_material_column_without_losing_files(client):
     with sqlite3.connect(':memory:') as dummy:
         pass
     # Copy a real backup, then remove the *new* column/tables to emulate old archives.
-    backup=c.get('/api/backup').content
+    backup=c.post('/api/backup/download').content
     with zipfile.ZipFile(io.BytesIO(backup)) as zin, zipfile.ZipFile(snap,'w',zipfile.ZIP_DEFLATED) as zout:
         for entry in zin.infolist():
             if entry.filename=='study.sqlite3':

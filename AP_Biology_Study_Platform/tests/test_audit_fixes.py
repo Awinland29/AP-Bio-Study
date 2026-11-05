@@ -31,7 +31,7 @@ def test_complete_backup_restores_everything(c):
     c.post('/api/guides',json={'unit_id':u,'mode':'exam'})
     c.post('/api/tasks',json={'unit_id':u,'title':'Study ATP'})
     before=c.get('/api/bootstrap').json()
-    b=c.get('/api/backup')
+    b=c.post('/api/backup/download')
     assert b.status_code==200
     # All study records and file bytes are in the archive.
     names=zipfile.ZipFile(io.BytesIO(b.content)).namelist()
@@ -55,7 +55,7 @@ def test_complete_backup_restores_everything(c):
 
 def test_restore_rejects_invalid_zip_missing_confirm_and_zip_slip(c):
     u=unit(c,'Keep my work')
-    clean=c.get('/api/backup').content
+    clean=c.post('/api/backup/download').content
     for data,confirmation in [(clean,'wrong'),(b'not a zip','RESTORE')]:
         r=c.post('/api/backup/restore',files={'file':('wrong.zip',data,'application/zip')},data={'confirmation':confirmation})
         assert r.status_code==400,r.text
