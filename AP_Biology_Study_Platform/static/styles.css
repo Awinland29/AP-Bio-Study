@@ -25,3 +25,48 @@
 .deck-layout{grid-template-columns:minmax(0,1fr)}
 .deck-manager .mini-card-list{max-height:330px}
 @media(max-width:620px){.content{padding:17px 13px 50px}.heading-row{margin-bottom:17px}.hero{padding:20px}.card{padding:17px}.heading-actions .btn{white-space:normal}.storage-notice{padding:13px}.deck-action-row{gap:9px;flex-wrap:wrap}.tabs{max-width:100%;overflow:auto}.question-card{min-height:0}}
+
+
+/* Bright Biosphere refresh: cheerful and clean, without adding UI clutter. */
+:root:not([data-theme='dark']) {
+  --bg:#f5fbf7;
+  --surface:#ffffff;
+  --text:#183a2c;
+  --muted:#577568;
+  --faint:#ebf8f0;
+  --border:#dceee3;
+  --green:#20835b;
+  --green-dark:#126544;
+  --green-soft:#ddf5e8;
+  --teal:#3bbd9e;
+  --accent:#ffcb6e;
+  --shadow:0 10px 28px rgba(29,99,66,.055);
+}
+:root:not([data-theme='dark']) body {background:radial-gradient(ellipse 690px 440px at 93% 4%,#e6f8eb 0%,transparent 75%),radial-gradient(ellipse 550px 360px at 25% 88%,#fef8e7 0%,transparent 80%),var(--bg)}
+:root:not([data-theme='dark']) .sidebar {background:linear-gradient(165deg,#ffffff 0%,#f7fdf9 90%)}
+:root:not([data-theme='dark']) .topbar {background:rgba(255,255,255,.93);backdrop-filter:blur(12px)}
+:root:not([data-theme='dark']) .hero {
+  background:linear-gradient(115deg,#dcf8e8 0%,#e8fbeb 55%,#fff2d4 100%);
+  border:1px solid #c7ead4;
+  box-shadow:0 11px 32px rgba(54,123,77,.08);
+}
+:root:not([data-theme='dark']) .hero h2 {color:#19583d}
+:root:not([data-theme='dark']) .hero p {color:#4a7660}
+:root:not([data-theme='dark']) .hero-art {color:#26a87b;opacity:.65}
+:root:not([data-theme='dark']) .card {border-color:#dceee3}
+:root:not([data-theme='dark']) .metric:nth-child(4n+1) .metric-icon {background:#e2f9eb;color:#1b9366}
+:root:not([data-theme='dark']) .metric:nth-child(4n+2) .metric-icon {background:#e0f4ff;color:#247aa5}
+:root:not([data-theme='dark']) .metric:nth-child(4n+3) .metric-icon {background:#fff2d4;color:#ac751c}
+:root:not([data-theme='dark']) .metric:nth-child(4n+4) .metric-icon {background:#fbe8ed;color:#ae5c7f}
+:root:not([data-theme='dark']) .nav-item.active {background:#ddf5e8;color:#146440}
+:root:not([data-theme='dark']) .nav-item:hover:not(.active) {background:#edf9f1;color:#205b43}
+:root:not([data-theme='dark']) .btn.primary {background:#20835b;box-shadow:0 4px 12px rgba(32,131,91,.12)}
+:root:not([data-theme='dark']) .btn.primary:hover {background:#156b4a;box-shadow:0 6px 15px rgba(32,131,91,.18)}
+:root:not([data-theme='dark']) .resource-promo {background:linear-gradient(105deg,#e2f8ed,#f0fbf4)}
+:root:not([data-theme='dark']) .schedule-stats>div:nth-child(1) {background:#f1fbf4;border-color:#d5ecdf}
+:root:not([data-theme='dark']) .schedule-stats>div:nth-child(2) {background:#fff9e9;border-color:#f4e4bd}
+:root:not([data-theme='dark']) .schedule-stats>div:nth-child(3) {background:#f0f9ff;border-color:#d8e9f4}
+:root:not([data-theme='dark']) .brand-glyph {background:#dcf3e4;padding:2px;border:1px solid #caebd6}
+:root:not([data-theme='dark']) .avatar {background:#e3f8eb;color:#1d7253}
+:root:not([data-theme='dark']) .btn:focus-visible, :root:not([data-theme='dark']) a:focus-visible {outline:3px solid #3bbd9e;outline-offset:3px}
+@media(prefers-reduced-motion:reduce){.btn,.nav-item{transition:none!important}}

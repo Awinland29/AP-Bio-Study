@@ -87,7 +87,7 @@ To publish an audited code update, keep the free Blueprint and commit the update
 
 For a new installation, `APBIO_PUBLIC=1` requires the server environment variables `APBIO_ADMIN_USERNAME` and `APBIO_ADMIN_PASSWORD` (at least 16 characters), plus `APBIO_DATA_DIR`. Set passwords in Render **Environment**, never GitHub. `APBIO_DATA_DIR` under `/tmp` works for launching a free demonstration but **does not preserve your data across redeploys/restarts**. New releases support browser-based **Settings & Backup → Restore complete backup** to recover from a ZIP you kept elsewhere.
 
-**Security scope:** The site has one HTTP Basic authentication gate over HTTPS, not separate user accounts or school-grade authorization. Anyone with the password can access uploads, notes and progress. Never put passwords, API keys or genuine class backups into GitHub.
+**Public access and privacy:** The homepage now opens without sign-in. Visitors have independent browser-linked study databases and uploads; they do **not** access the existing private owner's files. Existing owner data is available at `/owner` with the former Basic-authentication credentials, then a signed owner cookie keeps the owner in their original workspace. `/owner/logout` leaves that legacy workspace. Browser cookies are not multi-device accounts: clearing cookies, using another browser, or Render Free restarting can lose access to that visitor's data. Each visitor should download full ZIP backups. No guest can use a paid OpenAI API key, even if one is configured by the server owner. Public visitor access is not a substitute for production-grade accounts, user quotas, and durable storage; avoid uploading sensitive student information.
 
 **Optional AI:** Set `OPENAI_API_KEY` only in the host environment when an eligible separately billed account is available. ChatGPT Plus is not an API subscription. If disabled, ordinary local study features still work and no artificial tutoring responses are shown.
 
@@ -125,3 +125,12 @@ Audit test commands: `python -m pytest -q` (the `tests/audit_browser.py` smoke t
 - Class schedules and assignment-list documents can also be uploaded in **Course Resources** as normal files. PDFs and screenshots are stored as reference files, not magically converted into dates.
 - The **Google Classroom link** field is only a shortcut to your class; it does **not** grant access or synchronize assignments. True Classroom sync requires a Google Cloud project, OAuth consent, Google API scopes and possibly approval from the school's Google Workspace administrator. Don't share login passwords with the website.
 - New `schedule_entries` and `schedule_links` tables are included in complete ZIP backups and JSON exports. Older backups are migrated on restore. On Render Free, `/tmp` storage remains ephemeral, so download a fresh backup after important edits.
+
+
+### Bright public study spaces (no login)
+
+- The main site is a one-click open link, even for first-time visitors. Each browser gets a random, HTTP-only session cookie that maps to its own SQLite database and uploaded file folder. No shared public database is exposed.
+- A visitor's work isn't synchronized across devices or browsers. Save **Settings & Backup → Download complete backup** regularly.
+- The original password-protected owner workspace is retained for earlier course files. Open `/owner` and enter the old credentials once to access it. `/owner/logout` switches back to a public guest workspace.
+- Google Classroom is still a **shortcut only**, not automatic synchronization. Assignments & Schedule can import CSV and `.ics` snapshots. Real syncing needs authorized OAuth, school approval where required, and a properly designed integration.
+- Light mode has mint, warm yellow and sky accents; dark mode retains its previous contrast.

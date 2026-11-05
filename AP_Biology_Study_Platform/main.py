@@ -2,11 +2,15 @@
 from __future__ import annotations
 
 import io
+import contextvars
+import hmac
+import hashlib
 import base64
 import binascii
 import json
 import os
 import random
+import time
 import re
 import secrets
 import shutil
@@ -21,7 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -32,6 +36,15 @@ DATA.mkdir(parents=True, exist_ok=True)
 UPLOADS.mkdir(parents=True, exist_ok=True)
 DB = DATA / 'study.sqlite3'
 RESTORE_LOCK = threading.Lock()
+VISITOR_INIT_LOCK = threading.Lock()
+VISITOR_RATE_LOCK = threading.Lock()
+VISITOR_RATE = {}
+VISITOR_MAX_WRITES_PER_MINUTE = 120
+WORKSPACE_DATA = contextvars.ContextVar('biosphere_workspace_data', default=None)
+OWNER_SESSION_COOKIE = 'biosphere_owner'
+VISITOR_SESSION_COOKIE = 'biosphere_visitor'
+VISITOR_ROOT = DATA / 'visitors'
+
 AI_MODEL = os.environ.get('OPENAI_MODEL', 'gpt-4.1-mini')
 PUBLIC_MODE = os.environ.get('APBIO_PUBLIC', '').lower() in {'1', 'true', 'yes'}
 ADMIN_USERNAME = os.environ.get('APBIO_ADMIN_USERNAME', 'student')
@@ -60,8 +73,19 @@ def rid():
     return uuid.uuid4().hex[:16]
 
 
+def workspace_data():
+    return WORKSPACE_DATA.get() or DATA
+
+
+def workspace_uploads():
+    return (workspace_data() / 'uploads') if WORKSPACE_DATA.get() else UPLOADS
+
+
 def db():
-    c = sqlite3.connect(DB, timeout=20)
+    # Each anonymous visitor receives an isolated SQLite database. The existing
+    # personal database is only accessible via the optional legacy owner mode.
+    db_path = (workspace_data() / 'study.sqlite3') if WORKSPACE_DATA.get() else DB
+    c = sqlite3.connect(db_path, timeout=20)
     c.row_factory = sqlite3.Row
     c.execute('PRAGMA foreign_keys=ON')
     return c
@@ -133,49 +157,118 @@ init()
 app = FastAPI(title='AP Biology Study Studio', version='1.0.0')
 
 
+def owner_cookie_value():
+    # An owner cookie is a MAC, not a password or a user ID. It becomes invalid
+    # whenever the configured admin password is rotated.
+    return hmac.new(ADMIN_PASSWORD.encode('utf-8'), b'biosphere-owner-v1', hashlib.sha256).hexdigest()
+
+
+def valid_owner_basic(header):
+    if not header.lower().startswith('basic '):
+        return False
+    try:
+        raw = base64.b64decode(header.split(' ', 1)[1], validate=True).decode('utf-8')
+        username, password = raw.split(':', 1)
+        return (secrets.compare_digest(username, ADMIN_USERNAME)
+                and secrets.compare_digest(password, ADMIN_PASSWORD))
+    except (ValueError, UnicodeError, binascii.Error):
+        return False
+
+
 @app.middleware('http')
-async def private_study_access(request: Request, call_next):
-    """Password-gate all personal data when the app is deployed publicly.
+async def browser_workspace_access(request: Request, call_next):
+    """Public no-sign-in study rooms, isolated by an unpredictable browser cookie.
 
-    No secrets are sent to client JavaScript. The hosting platform must provide
-    HTTPS; browser Basic authentication is never intended for plain HTTP.
+    The legacy owner's data remains protected and is never exposed to guests.
+    Any browser with lost cookies must restore its own complete backup.
     """
-    if PUBLIC_MODE:
-        if request.url.path != '/healthz':
-            encoded = request.headers.get('authorization', '')
-            valid = False
-            if encoded.lower().startswith('basic '):
-                try:
-                    decoded = base64.b64decode(encoded.split(' ', 1)[1], validate=True).decode('utf-8')
-                    username, password = decoded.split(':', 1)
-                    valid = (secrets.compare_digest(username, ADMIN_USERNAME)
-                             and secrets.compare_digest(password, ADMIN_PASSWORD))
-                except (ValueError, UnicodeError, binascii.Error):
-                    pass
-            if not valid:
-                return Response('Authentication required.', status_code=401,
-                    headers={'WWW-Authenticate':'Basic realm="AP Biology Study Studio", charset="UTF-8"',
-                             'Cache-Control':'no-store'})
+    if not PUBLIC_MODE:
+        return await call_next(request)
+    path = request.url.path
+    if path == '/healthz' or path.startswith('/static/'):
+        return await call_next(request)
+    secure_cookie = request.url.scheme == 'https' or request.headers.get('x-forwarded-proto') == 'https'
+    owner_cookie = request.cookies.get(OWNER_SESSION_COOKIE, '')
+    is_owner = bool(owner_cookie) and secrets.compare_digest(owner_cookie, owner_cookie_value())
 
-            # Prevent another website from making an authenticated browser submit
-            # a form or XMLHttpRequest that changes personal study data.
-            if request.method not in {'GET', 'HEAD', 'OPTIONS'}:
-                origin = request.headers.get('origin')
-                host = request.headers.get('host', '')
-                if request.headers.get('sec-fetch-site') == 'cross-site':
-                    return Response('Cross-site changes are blocked.', status_code=403)
-                if origin:
-                    from urllib.parse import urlsplit
-                    parsed = urlsplit(origin)
-                    if parsed.scheme not in {'http', 'https'} or parsed.netloc.lower() != host.lower():
-                        return Response('Cross-site changes are blocked.', status_code=403)
-    response = await call_next(request)
-    if PUBLIC_MODE:
-        response.headers['Cache-Control'] = 'no-store'
-        response.headers['X-Content-Type-Options'] = 'nosniff'
-        response.headers['Referrer-Policy'] = 'same-origin'
+    # Optional migration route for the original password-protected workspace.
+    # Ordinary visitors never encounter a login dialog.
+    if path == '/owner':
+        if not (is_owner or valid_owner_basic(request.headers.get('authorization', ''))):
+            return Response('Owner login is required to access the old private workspace.', status_code=401,
+                            headers={'WWW-Authenticate':'Basic realm="Biosphere private archive", charset="UTF-8"',
+                                     'Cache-Control':'no-store'})
+        response = RedirectResponse('/', status_code=303)
+        response.set_cookie(OWNER_SESSION_COOKIE, owner_cookie_value(), max_age=30*86400,
+                            secure=secure_cookie, httponly=True, samesite='lax', path='/')
+        response.delete_cookie(VISITOR_SESSION_COOKIE, path='/')
+        response.headers['Cache-Control']='no-store'
+        return response
+    if path == '/owner/logout':
+        response = RedirectResponse('/',status_code=303)
+        response.delete_cookie(OWNER_SESSION_COOKIE,path='/')
+        response.delete_cookie(VISITOR_SESSION_COOKIE,path='/')
+        response.headers['Cache-Control']='no-store'
+        return response
+
+    visitor_cookie = request.cookies.get(VISITOR_SESSION_COOKIE,'')
+    new_visitor = (not is_owner and re.fullmatch(r'[a-f0-9]{48}',visitor_cookie) is None)
+    if new_visitor:
+        visitor_cookie = secrets.token_hex(24)
+
+    # Never allow unauthenticated visitors to consume a configured paid AI API.
+    if not is_owner and path.startswith('/api/ai/'):
+        return JSONResponse({'detail':'Live AI tools require an owner account and API credits. Free study features work here.'}, status_code=403)
+
+    if request.method not in {'GET','HEAD','OPTIONS'}:
+        if not is_owner:
+            with VISITOR_RATE_LOCK:
+                tick = time.monotonic()
+                # A per-workspace limit for accidental form loops and casual abuse.
+                # Purge old records to avoid retaining sessions indefinitely.
+                if len(VISITOR_RATE) > 1000:
+                    for key, data in list(VISITOR_RATE.items()):
+                        if tick-data[0] >= 65: VISITOR_RATE.pop(key,None)
+                started, count = VISITOR_RATE.get(visitor_cookie,(tick,0))
+                if tick-started >= 60: started,count=tick,0
+                if count>=VISITOR_MAX_WRITES_PER_MINUTE:
+                    return JSONResponse({'detail':'Too many changes at once. Try again in a minute.'},status_code=429)
+                VISITOR_RATE[visitor_cookie]=(started,count+1)
+        origin=request.headers.get('origin')
+        host=request.headers.get('host','')
+        if request.headers.get('sec-fetch-site')=='cross-site':
+            return Response('Cross-site changes are blocked.',status_code=403)
+        if origin:
+            from urllib.parse import urlsplit
+            parsed=urlsplit(origin)
+            if parsed.scheme not in {'http','https'} or parsed.netloc.lower()!=host.lower():
+                return Response('Cross-site changes are blocked.',status_code=403)
+
+    token=None
+    if not is_owner:
+        guest_dir = VISITOR_ROOT / visitor_cookie
+        # Protect against simultaneous initialization of an empty workspace.
+        if not (guest_dir / 'study.sqlite3').exists():
+            with VISITOR_INIT_LOCK:
+                if not (guest_dir / 'study.sqlite3').exists():
+                    guest_dir.mkdir(parents=True, exist_ok=True)
+                    (guest_dir / 'uploads').mkdir(exist_ok=True)
+                    token=WORKSPACE_DATA.set(guest_dir)
+                    try:init()
+                    finally:WORKSPACE_DATA.reset(token)
+                    token=None
+        token=WORKSPACE_DATA.set(guest_dir)
+    try:
+        response=await call_next(request)
+    finally:
+        if token is not None:WORKSPACE_DATA.reset(token)
+    if new_visitor:
+        response.set_cookie(VISITOR_SESSION_COOKIE, visitor_cookie, max_age=90*86400,
+                            secure=secure_cookie, httponly=True, samesite='lax', path='/')
+    response.headers['Cache-Control']='no-store'
+    response.headers['X-Content-Type-Options']='nosniff'
+    response.headers['Referrer-Policy']='same-origin'
     return response
-
 
 @app.get('/healthz')
 def hosting_health():
@@ -449,7 +542,7 @@ def qbank(cards, mode, requested, count, target_topics=None):
 
 @app.get('/api/health')
 def health():
-    return {'ok':True,'ai_enabled':bool(os.environ.get('OPENAI_API_KEY')),'model':AI_MODEL}
+    return {'ok':True,'ai_enabled':bool(os.environ.get('OPENAI_API_KEY')) and not (PUBLIC_MODE and WORKSPACE_DATA.get() is not None),'model':AI_MODEL}
 
 
 @app.get('/api/bootstrap')
@@ -485,7 +578,7 @@ def bootstrap():
     return {'units':units,'materials':materials,'cards':cards,'attempts':attempts,'tasks':tasks,'guides':guides,
             'stats':{'materials':len(materials),'cards':len(cards),'due':due,'reviewed':reviewed,
                      'mastered':mastered,'completed':len(completed),'average':round(sum(scores)/len(scores)) if scores else None},
-            'ai_enabled':bool(os.environ.get('OPENAI_API_KEY')), 'public_mode':PUBLIC_MODE,
+            'ai_enabled':bool(os.environ.get('OPENAI_API_KEY')) and not (PUBLIC_MODE and WORKSPACE_DATA.get() is not None), 'public_mode':PUBLIC_MODE,
             'data_durability':durability}
 
 
@@ -533,7 +626,7 @@ async def upload_material(files:list[UploadFile]=File(...),unit_id:str=Form(''),
         if not content:
             results.append({'filename':name,'error':'File is empty'});continue
         fid=rid(); store=fid+ext
-        (UPLOADS/store).write_bytes(content)
+        (workspace_uploads()/store).write_bytes(content)
         txt,status=extract_file(name,content)
         with db() as c:
             c.execute('INSERT INTO materials(id,unit_id,topic,lesson,filename,store_name,text,extraction_status,size_bytes,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
@@ -560,8 +653,8 @@ def update_material(id:str,body:dict):
 def download_material(id:str):
     m=item('SELECT * FROM materials WHERE id=?',(id,))
     if not m:die('Material not found.',404)
-    file=(UPLOADS/m['store_name']).resolve()
-    if not file.is_relative_to(UPLOADS) or not file.exists():die('Stored file is missing.',404)
+    file=(workspace_uploads()/m['store_name']).resolve()
+    if not file.is_relative_to(workspace_uploads()) or not file.exists():die('Stored file is missing.',404)
     return FileResponse(file,filename=m['filename'])
 
 
@@ -577,7 +670,7 @@ def delete_material(id:str):
     m=item('SELECT * FROM materials WHERE id=?',(id,))
     if not m:die('Material not found.',404)
     with db() as c:c.execute('DELETE FROM materials WHERE id=?',(id,))
-    (UPLOADS/m['store_name']).unlink(missing_ok=True)
+    (workspace_uploads()/m['store_name']).unlink(missing_ok=True)
     return {'ok':True}
 
 
@@ -1094,7 +1187,7 @@ def export_backup():
             bak=Path(td)/'study.sqlite3'; backcon=sqlite3.connect(bak);temp.backup(backcon);backcon.close()
             z.write(bak,'study.sqlite3')
         temp.close()
-        for f in UPLOADS.iterdir():
+        for f in workspace_uploads().iterdir()
             if f.is_file():z.write(f,'uploads/'+f.name)
         z.writestr('RESTORE.txt','Stop the server. Replace data/study.sqlite3 and data/uploads/ with these archive contents. Restart the server.\n')
     return Response(mem.getvalue(),media_type='application/zip',
@@ -1115,7 +1208,7 @@ async def restore_backup(file: UploadFile=File(...), confirmation: str=Form(''))
     required={'units','materials','cards','quizzes','guides','reviews','tasks','chat','issues'}
     with RESTORE_LOCK:
         try:
-            with zipfile.ZipFile(io.BytesIO(archive)) as z, tempfile.TemporaryDirectory(dir=DATA) as td:
+            with zipfile.ZipFile(io.BytesIO(archive)) as z, tempfile.TemporaryDirectory(dir=workspace_data()) as td:
                 target=Path(td)
                 info=z.infolist()
                 if len(info)>3000 or sum(x.file_size for x in info)>300*1024*1024:
@@ -1164,14 +1257,14 @@ async def restore_backup(file: UploadFile=File(...), confirmation: str=Form(''))
                 with sqlite3.connect(previous) as old, db() as original:
                     original.backup(old)
                 previous_uploads=target/'previous_uploads'
-                UPLOADS.rename(previous_uploads)
+                workspace_uploads().rename(previous_uploads)
                 try:
-                    new_uploads.rename(UPLOADS)
+                    new_uploads.rename(workspace_uploads())
                     with sqlite3.connect(snapshot) as source, db() as current:
                         source.backup(current)
                 except Exception:
-                    if UPLOADS.exists():shutil.rmtree(UPLOADS)
-                    previous_uploads.rename(UPLOADS)
+                    if workspace_uploads().exists():shutil.rmtree(workspace_uploads())
+                    previous_uploads.rename(workspace_uploads())
                     with sqlite3.connect(previous) as source, db() as current:
                         source.backup(current)
                     raise
