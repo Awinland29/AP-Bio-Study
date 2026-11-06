@@ -1,0 +1,12 @@
+/* Minimal Classroom sync styling within Biosphere. */
+.gc-card{margin:20px 0;background:linear-gradient(125deg,var(--surface,#fff) 65%,rgba(65,190,126,.08))}
+.gc-card .schedule-buttons{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}
+.gc-card .card-header{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.gc-assignment-list{max-height:440px;overflow-y:auto;margin-top:14px;border:1px solid var(--border);border-radius:12px}
+.gc-assignment{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 14px;border-bottom:1px solid var(--border)}
+.gc-assignment:last-child{border-bottom:none}
+.gc-assignment div{display:flex;flex-direction:column;min-width:0;gap:4px}
+.gc-assignment strong{overflow-wrap:anywhere}
+.gc-assignment small{color:var(--muted,#64746b)}
+.gc-error{color:#a22}
+@media(max-width:600px){.gc-card{margin:15px 0}.gc-assignment{align-items:flex-start}.gc-assignment .btn{flex-shrink:0}}
