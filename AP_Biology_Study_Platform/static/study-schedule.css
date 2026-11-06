@@ -23,3 +23,12 @@
 .schedule-row-actions{display:flex;gap:5px;flex-wrap:wrap;justify-content:end}
 .schedule-done .schedule-item-top strong{text-decoration:line-through;opacity:.64}
 @media(max-width:720px){.schedule-stats{grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}.schedule-stats>div{padding:12px 10px}.schedule-stats strong{font-size:22px}.schedule-stats span{font-size:11px}.schedule-item{flex-wrap:wrap}.schedule-row-actions{width:100%;justify-content:start;padding-left:30px}.schedule-link .schedule-buttons .btn{flex:1 1 auto}}
+
+/* Google Classroom consent / sync status */
+.gc-connected,.gc-setup{background:var(--faint);border:1px solid var(--border);border-radius:12px;padding:13px 14px;margin:12px 0}
+.gc-connected{border-color:#94cda9;background:rgba(70,175,114,.075)}
+.gc-connected strong,.gc-connected small{display:block}
+.gc-connected small{margin-top:4px;color:var(--muted)}
+.gc-setup strong{color:var(--green-dark)}
+.gc-setup p{margin:7px 0 0}
+.gc-error{color:#ae4a36!important}

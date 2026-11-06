@@ -1,11 +1,11 @@
 /* Biosphere · Assignments & Schedule. All data is real, user-entered, and backed up. */
 'use strict';
-const scheduleState={loaded:false,entries:[],classroom_url:'',filter:'upcoming',editing:null};
+const scheduleState={loaded:false,entries:[],classroom_url:'',filter:'upcoming',editing:null,google:{configured:false,connected:false},syncing:false,lastSyncAttempt:0};
 const scheduleKinds={assignment:'Assignment',exam:'Test / quiz',class:'Class meeting',event:'Other event'};
 const scheduleEsc=value=>e(String(value??''));
 const scheduleToday=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
 async function scheduleLoad(){
-  try{const x=await api('/schedule');scheduleState.entries=x.entries;scheduleState.classroom_url=x.classroom_url||'';scheduleState.loaded=true;}
+  try{const [x,g]=await Promise.all([api('/schedule'),api('/google-classroom/status').catch(()=>({configured:false,connected:false}))]);scheduleState.entries=x.entries;scheduleState.classroom_url=x.classroom_url||'';scheduleState.google=g;scheduleState.loaded=true;}
   catch(err){scheduleState.loaded=false;console.warn('Could not load schedule:',err.message);}
 }
 const previousScheduleRefresh=refresh;
@@ -22,7 +22,7 @@ render=function(){
   previousScheduleRender();
 };
 function scheduleBadge(x){return ({assignment:'Due',exam:'Test',class:'Class',event:'Event'})[x.kind]||'Item';}
-function niceDate(date){try{return new Date(date+'T12:00:00').toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'});}catch{return date;}}
+function niceDate(date){if(date==='9999-12-31')return 'No due date';try{return new Date(date+'T12:00:00').toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'});}catch{return date;}}
 function schedulePage(){
   if(!scheduleState.loaded)return pageHeader('Plan ahead','Assignments & Schedule','Could not load the tracker. Refresh the page.');
   const today=scheduleToday();const entries=scheduleState.entries;
@@ -30,7 +30,7 @@ function schedulePage(){
   const list=entries.filter(x=>scheduleState.filter==='all'||(scheduleState.filter==='completed'?x.done:!x.done));
   const grouped=new Map();for(const x of list){const key=x.due_date;if(!grouped.has(key))grouped.set(key,[]);grouped.get(key).push(x);}
   let rows='';for(const [date,items] of grouped){rows+=`<div class="schedule-day"><div class="schedule-day-label">${scheduleEsc(niceDate(date))}${date<today?'<span class="schedule-overdue">Past date</span>':''}</div>${items.map(scheduleRow).join('')}</div>`;}
-  const classroom=scheduleState.classroom_url;
+  const classroom=scheduleState.classroom_url;const gc=scheduleState.google||{};const gcLast=gc.last_sync?new Date(gc.last_sync).toLocaleString():'Not yet synced';
   const storeWarning=state.data.data_durability==='temporary'?`<div class="storage-notice"><strong>Save backups regularly.</strong><span>Free hosting can erase schedule and assignment data after a restart or deploy.</span>${btn('jump-settings','Back up','secondary tiny')}</div>`:'';
   return `${pageHeader('Never lose track of a due date','Assignments & Schedule','Add assignments, tests and class events manually or import a CSV/ICS file.')}
   ${storeWarning}
@@ -49,18 +49,20 @@ function schedulePage(){
   <section class="card"><h3>Import assignments or a calendar</h3><p class="small subtle">Upload a CSV list or .ics calendar export. The dates become real entries below; importing the same file again won't create duplicates.</p>
     <form data-schedule-form="import" class="stack"><div class="field"><label>File to import</label><input class="input" type="file" name="file" accept=".csv,.ics" required></div><button class="btn primary fit" type="submit">Import dates</button></form>
     <button class="btn secondary fit mt16" data-schedule-action="template">Download example CSV template</button><p class="small subtle mt16">CSV columns: Title, Due Date, Type, Start Time, End Time, Details, URL. A PDF syllabus can be saved in Course Resources, but doesn't automatically create dated events. Imports are snapshots, not live sync.</p>
-    <div class="schedule-link"><h3>Google Classroom</h3><p class="small subtle">Save a shortcut to your class. This <strong>does not sync assignments</strong> or access private Classroom data.</p>
+    <div class="schedule-link"><h3>Google Classroom — automatic sync</h3><p class="small subtle">Connect your own Google account to import assignments, due dates, and your submission status. The connection is read-only. It refreshes when you open this page and while the page stays open.</p>
+    ${!gc.configured?`<div class="gc-setup"><strong>Setup needed</strong><p class="small subtle">The website owner must register Biosphere as a Google OAuth app and enable Classroom API access. This is a one-time setup, separate from the class link below. Your school might also need to approve access.</p></div>`:gc.connected?`<div class="gc-connected"><strong>Connected to Google Classroom</strong><small>Last checked: ${scheduleEsc(gcLast)} · ${Number(gc.assignment_count)||0} assignments · ${Number(gc.course_count)||0} active classes</small></div><div class="schedule-buttons"><button type="button" class="btn primary" data-schedule-action="gc-sync" ${scheduleState.syncing?'disabled':''}>${scheduleState.syncing?'Syncing…':'Sync now'}</button><button type="button" class="btn secondary" data-schedule-action="gc-disconnect">Disconnect</button></div>${gc.last_error?`<p class="small subtle gc-error">${scheduleEsc(gc.last_error)}</p>`:''}`:`<button type="button" class="btn primary fit" data-schedule-action="gc-connect">Connect Google Classroom</button><p class="small subtle">You will choose the Google account and approve read-only access on Google's website. If your school blocks third-party apps, your administrator must approve the connection.</p>`}
+    <div class="divider"></div><p class="small subtle">Optional class shortcut (not a sync connection)</p>
     <form data-schedule-form="classroom" class="stack"><div class="field"><label>Classroom link</label><input class="input" name="url" type="url" placeholder="https://classroom.google.com/c/..." value="${scheduleEsc(classroom)}"></div><div class="schedule-buttons"><button class="btn secondary" type="submit">Save shortcut</button>${classroom?`<a class="btn secondary" href="${scheduleEsc(classroom)}" rel="noreferrer noopener" target="_blank">Open Classroom ↗</a>`:''}</div></form></div>
   </section></div>
   <div class="section-heading schedule-heading"><h2>My dates</h2><div class="schedule-filters"><button class="btn ${scheduleState.filter==='upcoming'?'primary':'secondary'} tiny" data-schedule-action="filter" data-filter="upcoming">To do</button><button class="btn ${scheduleState.filter==='all'?'primary':'secondary'} tiny" data-schedule-action="filter" data-filter="all">All</button><button class="btn ${scheduleState.filter==='completed'?'primary':'secondary'} tiny" data-schedule-action="filter" data-filter="completed">Completed</button></div></div>
   <section class="card schedule-list">${rows||empty(scheduleState.filter==='completed'?'Nothing completed yet':'Nothing to show','Add an assignment or import your calendar above.')}</section>
-  <p class="small subtle mt16">Nothing is automatically submitted to Google Classroom. Checking an assignment complete only changes its status inside Biosphere.</p>`;
+  <p class="small subtle mt16">Biosphere only reads Google Classroom data. No assignments are submitted or changed in Classroom. Synced completion status comes from Google.</p>`;
 }
 function scheduleRow(x){const when=[x.start_time,x.end_time].filter(Boolean).join(' – ');
  return `<div class="schedule-item ${x.done?'schedule-done':''}"><input type="checkbox" aria-label="Mark ${scheduleEsc(x.title)} completed" data-schedule-action="toggle" data-id="${scheduleEsc(x.id)}" ${x.done?'checked':''}>
  <div class="schedule-item-info"><div class="schedule-item-top"><span class="chip">${scheduleBadge(x)}</span><strong>${scheduleEsc(x.title)}</strong></div>
  ${when?`<small>${scheduleEsc(when)}</small>`:''}${x.details?`<div class="schedule-detail">${scheduleEsc(x.details)}</div>`:''}
- <small>${x.source==='manual'?'Added manually':'Imported from '+(x.source==='csv'?'CSV':'calendar')}</small></div>
+ <small>${x.source==='manual'?'Added manually':x.source==='google_classroom'?'Synced from Google Classroom':'Imported from '+(x.source==='csv'?'CSV':'calendar')}</small></div>
  <div class="schedule-row-actions">${x.url?`<a href="${scheduleEsc(x.url)}" target="_blank" rel="noopener noreferrer" class="btn secondary tiny">Open ↗</a>`:''}<button class="btn secondary tiny" data-schedule-action="edit" data-id="${scheduleEsc(x.id)}">Edit</button><button class="btn secondary tiny" data-schedule-action="remove" data-id="${scheduleEsc(x.id)}">Delete</button></div></div>`;
 }
 document.addEventListener('click',async event=>{
@@ -68,6 +70,16 @@ document.addEventListener('click',async event=>{
  const action=el.dataset.scheduleAction,id=el.dataset.id;
  if(action==='toggle')return; // checkbox handled in change listener
  try{
+   if(action==='gc-connect'){
+     const result=await api('/google-classroom/connect',{method:'POST'});
+     if(!result.authorization_url?.startsWith('https://accounts.google.com/o/oauth2/v2/auth?'))throw Error('Unexpected Google authorization URL.');
+     window.location.assign(result.authorization_url);return;
+   }
+   if(action==='gc-sync'){await gcSync(true);return;}
+   if(action==='gc-disconnect'){
+     if(!confirm('Disconnect Google Classroom? Previously synced assignments remain in Biosphere.'))return;
+     await api('/google-classroom/disconnect',{method:'POST'});await scheduleLoad();render();toast('Google Classroom disconnected.');return;
+   }
    if(action==='filter'){scheduleState.filter=el.dataset.filter;render();return;}
    if(action==='cancel-edit'){scheduleState.editing=null;render();return;}
    if(action==='edit'){scheduleState.editing=scheduleState.entries.find(x=>x.id===id);render();document.querySelector('form[data-schedule-form="item"] input[name="title"]')?.focus();return;}
@@ -99,4 +111,27 @@ document.addEventListener('submit',async event=>{
  }catch(err){toast(err.message||String(err),true);}
  finally{if(button)button.disabled=false;}
 },true);
-scheduleLoad().then(()=>{if(state.data&&state.page==='schedule')render();});
+
+async function gcSync(manual=false){
+  if(scheduleState.syncing||!scheduleState.google?.connected)return;
+  const now=Date.now(),last=Date.parse(scheduleState.google.last_sync||'')||0;
+  if(!manual&&now-last<5*60*1000)return;
+  if(!manual&&now-scheduleState.lastSyncAttempt<5*60*1000)return;
+  scheduleState.lastSyncAttempt=now;scheduleState.syncing=true;if(state.page==='schedule')render();
+  try{
+    const x=await api('/google-classroom/sync',{method:'POST'});
+    await scheduleLoad();
+    if(manual)toast(`Classroom synced: ${x.added} new, ${x.updated} updated.`);
+  }catch(err){
+    await scheduleLoad();if(manual)toast(err.message||String(err),true);
+  }finally{scheduleState.syncing=false;if(state.page==='schedule')render();}
+}
+const originalScheduleGo=go;
+go=async function(page){await originalScheduleGo(page);if(page==='schedule')gcSync(false);};
+scheduleLoad().then(async()=>{
+  if(state.data&&state.page==='schedule')render();
+  const gc=new URLSearchParams(window.location.search).get('classroom');
+  if(gc){window.history.replaceState({},'',window.location.pathname);await go('schedule');if(gc==='connected')toast('Classroom connected! Assignments are syncing.');else toast('Google did not connect. Your school may require app approval.',true);}
+});
+setInterval(()=>{if(state.page==='schedule'&&!document.hidden)gcSync(false);},5*60*1000);
+

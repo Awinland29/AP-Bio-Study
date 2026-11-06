@@ -152,6 +152,8 @@ def init():
     prepare_schema(db)
     from schedule_extras import prepare_schema as prepare_schedule_schema
     prepare_schedule_schema(db)
+    from google_classroom import prepare_schema as prepare_google_classroom_schema
+    prepare_google_classroom_schema(db)
 
 init()
 app = FastAPI(title='AP Biology Study Studio', version='1.0.0')
@@ -1282,6 +1284,8 @@ from study_extras import install as install_study_extras
 install_study_extras(app, globals())
 from schedule_extras import install as install_schedule_extras
 install_schedule_extras(app, globals())
+from google_classroom import install as install_google_classroom
+install_google_classroom(app, globals())
 
 app.mount('/static',StaticFiles(directory=ROOT/'static'),name='static')
 
