@@ -134,3 +134,26 @@ Audit test commands: `python -m pytest -q` (the `tests/audit_browser.py` smoke t
 - The original password-protected owner workspace is retained for earlier course files. Open `/owner` and enter the old credentials once to access it. `/owner/logout` switches back to a public guest workspace.
 - Google Classroom is still a **shortcut only**, not automatic synchronization. Assignments & Schedule can import CSV and `.ics` snapshots. Real syncing needs authorized OAuth, school approval where required, and a properly designed integration.
 - Light mode has mint, warm yellow and sky accents; dark mode retains its previous contrast.
+
+
+## Google Classroom assignment synchronization (OAuth)
+
+The Assignments & Schedule screen contains an **optional Google Classroom read-only sync** panel.
+It reads each visitor's own active courses and published coursework (titles, class names, due dates, links and descriptions), including assignments with no due date. It updates at most every 30 minutes **while the schedule page is open**, and supports **Sync now**. This is NOT a server-side 24/7 background sync, and does not mark submissions turned in.
+
+**Required one-time setup by the website owner** (never put credentials in GitHub):
+
+1. Create a Google Cloud project and enable the **Google Classroom API**. Configure the OAuth consent screen. School-managed Google accounts may require Google Workspace admin approval or an approved/verified OAuth application.
+2. Create an **OAuth client ID → Web application**. Add this exact authorized redirect URI:
+   `https://ap-biology-study-studio.onrender.com/api/classroom/callback`
+3. In your Render service → Environment, set:
+   - `APBIO_GOOGLE_CLIENT_ID` — the Google OAuth Web client ID.
+   - `APBIO_GOOGLE_CLIENT_SECRET` — the Google OAuth Web client secret (secret; never share in chat or Git).
+   - `APBIO_GOOGLE_REDIRECT_URI` — `https://ap-biology-study-studio.onrender.com/api/classroom/callback`.
+   - `APBIO_GOOGLE_TOKEN_KEY` — an independently generated Fernet key, e.g. `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. Save it securely; changing the key prevents reading previously connected tokens.
+4. Under OAuth scopes, request only:
+   - `https://www.googleapis.com/auth/classroom.courses.readonly`
+   - `https://www.googleapis.com/auth/classroom.coursework.me.readonly`
+5. After those environment values are configured, open **Assignments & Schedule → Connect Google Classroom**, approve the Google consent screen, and choose **Sync now**. Google never shares the account password with Biosphere. If a school policy blocks it, ask the school's Google Workspace administrator for authorization rather than trying to bypass restrictions.
+
+The public site's browser workspaces stay separate: access tokens are not exposed to JavaScript, and refresh tokens are encrypted at rest in each workspace's SQLite database. Connection state can be lost on Render Free restarts, lost browser cookies or a changed Fernet key. Avoid distributing backups or browser cookies to others. Anyone with access to a visitor's browser workspace cookie can act in that workspace, so this is not a substitute for multi-user account security. The integration is safely disabled when the four environment values are absent.
