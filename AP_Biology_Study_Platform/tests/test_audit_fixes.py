@@ -114,8 +114,18 @@ def test_data_survives_database_reinitialization(c):
 
 
 def test_unanswered_written_answer_cannot_be_self_graded_as_correct(c):
+    # Test the grading behavior of a previously saved legacy written quiz.
+    # New quizzes are intentionally multiple-choice only.
     u=unit(c,'Enzymes');upload(c,u,SAMPLE_A,'enzymes.txt')
-    quiz=c.post('/api/quizzes',json={'unit_id':u,'types':['short'],'count':1}).json()
+    qid='legacy-written'
+    question={'id':qid,'type':'short','prompt':'Explain why enzymes work.',
+              'topic':'Enzymes','source_name':'legacy teacher notes',
+              'answer':'Enzymes lower activation energy.','explanation':'Catalysis.',
+              'rubric':'Mentions activation energy.'}
+    quiz={'id':'legacy-quiz'}
+    with main.db() as conn:
+        conn.execute('INSERT INTO quizzes(id,title,mode,unit_id,question_json,minutes,created_at) VALUES (?,?,?,?,?,?,?)',
+                     (quiz['id'],'Legacy written quiz','quiz',u,json.dumps([question]),0,main.now()))
     report=c.post('/api/quizzes/'+quiz['id']+'/submit',json={'responses':{}}).json()['report']
     assert report['manual_needed']==0
     assert report['graded']==1 and report['percent']==0

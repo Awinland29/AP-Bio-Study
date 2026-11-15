@@ -457,7 +457,7 @@ def material_selection(payload):
 def public_quiz(q):
     safe=[]
     for question in json.loads(q['question_json']):
-        d={k:v for k,v in question.items() if k not in ('answer','explanation')}
+        d={k:v for k,v in question.items() if k not in ('answer','explanation') and not (question.get('type')=='frq' and k=='rubric')}
         safe.append(d)
     return {'id':q['id'],'title':q['title'],'mode':q['mode'],'status':q['status'],
             'minutes':q['minutes'],'created_at':q['created_at'],'questions':safe,
@@ -845,64 +845,72 @@ def make_ai_questions(body,rows):
     return valid
 
 
+def original_test_frqs(unit_id):
+    """Two multi-part, original Unit 3 FRQs; never present as uploaded facts."""
+    from study_extras import FRQ_BANK
+    curated = [x for x in FRQ_BANK if x['unit'] == 'Cellular Energetics']
+    if len(curated) < 2:
+        die('Two verified multi-part FRQs are not available for this unit.')
+    random.shuffle(curated)
+    questions = []
+    for source in curated[:2]:
+        parts = [{'id': p['id'], 'verb': p['verb'], 'prompt': p['prompt']} for p in source['parts']]
+        rubrics = {p['id']: p['rubric'] for p in source['parts']}
+        answers = {p['id']: '; '.join(p['rubric']) for p in source['parts']}
+        questions.append({
+            'id':rid(), 'type':'frq', 'unit_id':unit_id, 'material_id':None,
+            'topic':source['title'], 'prompt':source['title'],
+            'context':source['context'], 'parts':parts, 'rubric':rubrics,
+            'answer':answers, 'explanation':'Compare each part to its scoring criteria.',
+            'source_name':'Biosphere original Unit 3 FRQ practice (supplemental)'
+        })
+    return questions
+
+
 @app.post('/api/quizzes')
 def create_quiz(body:dict):
-    unit_id=body.get('unit_id') or None;valid_unit(unit_id)
+    unit_id=body.get('unit_id') or None
+    valid_unit(unit_id)
     ids=body.get('material_ids')
-    if ids is not None and not isinstance(ids,list):die('material_ids must be a list.')
+    if ids is not None and not isinstance(ids,list):
+        die('material_ids must be a list.')
     mode=body.get('mode','quiz')
-    if mode not in ('quiz','test'):die('Invalid practice mode.')
-    count=max(1,min(60,int(body.get('count',10))))
-    requested=body.get('types') or ['mcq','tf','fill','short','matching','multi']
-    allowed={'mcq','tf','fill','short','matching','multi'}
-    requested=[x for x in requested if x in allowed]
-    if not requested:die('Select at least one supported question format.')
-    cards=items('SELECT * FROM cards WHERE '+('unit_id=?' if unit_id else '1=1'),(unit_id,) if unit_id else ())
-    if ids is not None:cards=[x for x in cards if x['material_id'] in ids]
-    elif not unit_id: pass
-    if not cards:
-        rows=source_rows(unit_id,ids)
-        cs=candidates(rows)
-        # Never blank a random word to manufacture a question from an objective.
-        cards=[{'front':('Complete this source sentence: '+x['definition'].replace(x['term'],'____',1)) if x.get('cloze') else x['term'],
-                'back':x['term'] if x.get('cloze') else x['definition'],
-                'unit_id':x['unit_id'],'material_id':x['material_id'],
-                'topic':x['topic'],'source_name':x['source_name']} for x in cs]
-    else:
-        id_to_name={x['id']:x['filename'] for x in items('SELECT id,filename FROM materials')}
-        for x in cards:x['source_name']=id_to_name.get(x.get('material_id'),'Your saved flashcards')
+    if mode not in ('quiz','test'):
+        die('Invalid practice mode.')
+    # The user-specified classroom format is enforced on the SERVER,
+    # even if an older client sends mixed formats.
+    requested_count=int(body.get('count',20 if mode=='test' else 10))
+    count=max(18,min(20,requested_count)) if mode=='test' else max(1,min(40,requested_count))
     generator=body.get('generator','local')
-    if generator not in ('local','ai'):die('Unknown quiz generator.')
+    if generator not in ('local','ai'):
+        die('Unknown quiz generator.')
+    rows=source_rows(unit_id,ids)
+    unit_name=(item('SELECT name FROM units WHERE id=?',(unit_id,)) or {}).get('name','') if unit_id else ''
+    unit3=is_unit3(unit_name,rows) and (bool(unit_id) or ids is not None or len(rows)==1)
+    if mode=='test' and not unit3:
+        die('Two verified, multi-part FRQs are currently available for Unit 3. Other units need a reviewed FRQ bank before this test format can be generated.')
     if generator=='ai':
-        questions=make_ai_questions(body,source_rows(unit_id,ids))
-    elif is_unit3(
-        (item('SELECT name FROM units WHERE id=?',(unit_id,)) or {}).get('name','') if unit_id else '',
-        source_rows(unit_id,ids)) and (bool(unit_id) or ids is not None or len(source_rows(unit_id,ids))==1):
-        try:
-            bank_unit=unit_id or ((source_rows(unit_id,ids) or [{}])[0].get('unit_id'))
-            questions=build_questions(count,requested,bank_unit,rid)
-        except ValueError as exc:die(str(exc))
+        if not rows:
+            die('Select files containing explanations before creating AI questions.')
+        questions=make_ai_questions({**body,'types':['mcq'],'count':count},rows)
+    elif unit3:
+        bank_unit=unit_id or ((rows or [{}])[0].get('unit_id'))
+        questions=build_questions(count,['mcq'],bank_unit,rid)
     else:
-        # Without a validated answer key, generated 'true/false', arbitrary
-        # distractors, and random multi-select options mislead students.
-        cards=[c for c in cards if not c['front'].startswith('Complete this source sentence: ')]
-        if not cards:die('No answer-bearing class notes found. Objectives alone do not include answers. Upload explanations or select Unit 3 for original concept practice.')
-        reliable=[t for t in requested if t in ('fill','short','matching')]
-        if not reliable:
-            die('Free source-based practice outside Unit 3 supports fill-in, written, and matching recall. Select one of those formats or enable the AI generator.')
-        count=min(count,len(cards))
-        target_topics=[]
-        if body.get('prioritize_mistakes'):
-            profile=progress()['topics']
-            target_topics=[r['topic'] for r in profile if r['incorrect']>0 and r['incorrect']>=r['correct']]
-        questions=qbank(cards,mode,reliable,count,target_topics)
-    id=rid()
+        die('Reliable free multiple-choice questions are currently available for Unit 3. Other units require a reviewed question bank or the optional AI generator; random definitions will not be used as distractors.')
+    # Do not silently replace requested MCQs with cloze, matching, or
+    # other formats, or mislabel a short test as a full practice test.
+    if len(questions)!=count or any(q['type']!='mcq' or len(q.get('options',[]))!=4 for q in questions):
+        die('Could not create enough verified multiple-choice questions for this assessment. Try a smaller quiz or provide more detailed learning material.')
+    if mode=='test':
+        questions.extend(original_test_frqs(unit_id))
     title=clean(body.get('title','')) or ('Practice test' if mode=='test' else 'Practice quiz')
-    minutes=max(0,min(180,int(body.get('minutes',0))))
-    with db() as c:c.execute('INSERT INTO quizzes(id,title,mode,unit_id,question_json,minutes,created_at) VALUES (?,?,?,?,?,?,?)',
-                            (id,title,mode,unit_id,json.dumps(questions),minutes,now()))
-    return public_quiz(item('SELECT * FROM quizzes WHERE id=?',(id,)))
-
+    minutes=max(0,min(180,int(body.get('minutes',45 if mode=='test' else 0))))
+    quiz_id=rid()
+    with db() as c:
+        c.execute('INSERT INTO quizzes(id,title,mode,unit_id,question_json,minutes,created_at) VALUES (?,?,?,?,?,?,?)',
+                  (quiz_id,title,mode,unit_id,json.dumps(questions),minutes,now()))
+    return public_quiz(item('SELECT * FROM quizzes WHERE id=?',(quiz_id,)))
 
 @app.get('/api/quizzes/{id}')
 def get_quiz(id:str):
@@ -922,26 +930,56 @@ def eval_question(q, value):
 
 
 def make_report(questions,responses,manual_scores=None):
+    """Multiple-choice percentage and FRQ rubric points are reported separately."""
     manual_scores=manual_scores or {}
     details=[]
+    frq_earned=0
+    frq_possible=0
+    frq_scored=0
+    frq_parts_total=0
     for q in questions:
         resp=responses.get(q['id'])
+        typ=q['type']
         correct=eval_question(q,resp)
-        # A blank written answer is not awaiting self-review; it is unanswered.
-        if q['type']=='short':
+        if typ=='short':
             correct=manual_scores.get(q['id']) if clean(str(resp or '')) else False
-        details.append({'id':q['id'],'type':q['type'],'prompt':q['prompt'],'topic':q['topic'],
-                        'source_name':q['source_name'],'material_id':q.get('material_id'),
-                        'response':resp,'correct':correct,'answer':q['answer'],
-                        'explanation':q['explanation'],'rubric':q.get('rubric')})
+        result={'id':q['id'],'type':typ,'prompt':q['prompt'],'topic':q['topic'],
+                'source_name':q['source_name'],'material_id':q.get('material_id'),
+                'response':resp,'correct':correct,'answer':q['answer'],
+                'explanation':q['explanation'],'rubric':q.get('rubric')}
+        if typ=='frq':
+            # No automatic AI grading for handwritten/scientific reasoning.
+            correct=None
+            result['correct']=None
+            result['context']=q.get('context','')
+            result['parts']=q.get('parts',[])
+            raw_scores=manual_scores.get(q['id'],{})
+            if not isinstance(raw_scores,dict):
+                raw_scores={}
+            scores={}
+            for part in q['parts']:
+                pid=part['id']
+                possible=len(q['rubric'].get(pid,[]))
+                frq_possible+=possible
+                frq_parts_total+=1
+                val=raw_scores.get(pid)
+                if type(val) is int and 0<=val<=possible:
+                    scores[pid]=val
+                    frq_earned+=val
+                    frq_scored+=1
+            result['part_scores']=scores
+        details.append(result)
     graded=[x for x in details if x['correct'] is not None]
     percentage=round(sum(bool(x['correct']) for x in graded)/len(graded)*100) if graded else None
     misses=[x['topic'] for x in details if x['correct'] is False]
     return {'percent':percentage,'graded':len(graded),'total':len(details),
-            'manual_needed':sum(x['correct'] is None for x in details),
-            'correct':sum(x['correct'] is True for x in details),'missed_topics':list(dict.fromkeys(misses)),
+            'manual_needed':sum(x['correct'] is None and x['type']=='short' for x in details)
+                +sum(x['type']=='frq' and len(x.get('part_scores',{}))<len(x['parts']) for x in details),
+            'correct':sum(x['correct'] is True for x in details),
+            'missed_topics':list(dict.fromkeys(misses)),
+            'frq_points_earned':frq_earned,'frq_points_possible':frq_possible,
+            'frq_parts_scored':frq_scored,'frq_parts_total':frq_parts_total,
             'details':details}
-
 
 @app.post('/api/quizzes/{id}/submit')
 def submit_quiz(id:str,body:dict):
@@ -966,9 +1004,21 @@ def selfgrade_quiz(id:str,body:dict):
     if not q or q['status']!='submitted':die('Submitted assessment not found.',404)
     questions=json.loads(q['question_json']); scores=body.get('scores',{})
     if not isinstance(scores,dict):die('scores must be a mapping.')
-    old_report=json.loads(q['report_json']); old_scores={d['id']:d['correct'] for d in old_report['details'] if d['type']=='short'}
+    old_report=json.loads(q['report_json'])
+    old_scores={d['id']:d['correct'] for d in old_report['details'] if d['type']=='short'}
+    old_scores.update({d['id']:dict(d.get('part_scores') or {}) for d in old_report['details'] if d['type']=='frq'})
     for x in questions:
-        if x['type']=='short' and x['id'] in scores and isinstance(scores[x['id']],bool):old_scores[x['id']]=scores[x['id']]
+        qid=x['id']
+        if x['type']=='short' and qid in scores and isinstance(scores[qid],bool):
+            old_scores[qid]=scores[qid]
+        if x['type']=='frq' and isinstance(scores.get(qid),dict):
+            prior=old_scores.setdefault(qid,{})
+            for part in x['parts']:
+                pid=part['id']
+                val=scores[qid].get(pid)
+                maximum=len(x['rubric'].get(pid,[]))
+                if type(val) is int and 0<=val<=maximum:
+                    prior[pid]=val
     report=make_report(questions,json.loads(q['responses_json']),old_scores)
     with db() as c:c.execute('UPDATE quizzes SET report_json=? WHERE id=?',(json.dumps(report),id))
     return public_quiz(item('SELECT * FROM quizzes WHERE id=?',(id,)))

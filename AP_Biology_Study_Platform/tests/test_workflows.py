@@ -69,7 +69,7 @@ def test_home_and_organizing_materials(client):
 
 
 def test_source_grounded_cards_and_spaced_review(client):
-    u=unit(client);m=upload(client,u)
+    u=client.post('/api/units',json={'name':'Unit 2'}).json()['id'];m=upload(client,u)
     res=client.post('/api/cards/generate',json={'unit_id':u,'count':10})
     assert res.status_code==200,res.text
     assert res.json()['created']>=8
@@ -90,31 +90,30 @@ def test_source_grounded_cards_and_spaced_review(client):
 
 def test_quiz_answer_secrecy_scoring_and_progress(client):
     u=unit(client);upload(client,u)
-    # Create bank of cards to make all supported local question types viable.
-    client.post('/api/cards/generate',json={'unit_id':u,'count':10})
-    r=client.post('/api/quizzes',json={'unit_id':u,'types':['mcq','multi','tf','fill','matching','short'], 'count':6,'minutes':20,'mode':'test'})
+    r=client.post('/api/quizzes',json={'unit_id':u,'types':['mcq','multi','tf','fill','matching','short'], 'count':19,'minutes':45,'mode':'test'})
     assert r.status_code==200,r.text
     q=r.json();qid=q['id']
     assert q['mode']=='test' and q['status']=='active'
+    assert len(q['questions'])==21
+    assert sum(x['type']=='mcq' for x in q['questions'])==19
+    assert sum(x['type']=='frq' for x in q['questions'])==2
     assert all('answer' not in x and 'explanation' not in x for x in q['questions'])
-    assert all('answer' not in x for x in client.get(f'/api/quizzes/{qid}').json()['questions'])
-    # Inspect private keys in the test only to supply correct answers.
-    dbquiz=main.item('SELECT * FROM quizzes WHERE id=?',(qid,))
-    private=json.loads(dbquiz['question_json'])
-    response={x['id']:x['answer'] for x in private if x['type'] not in ('short',)}
-    # One manually graded answer, objective answers all correct.
-    response.update({x['id']:'I need to compare with rubric.' for x in private if x['type']=='short'})
+    assert all('rubric' not in x for x in q['questions'] if x['type']=='frq')
+    private=json.loads(main.item('SELECT * FROM quizzes WHERE id=?',(qid,))['question_json'])
+    response={x['id']:x['answer'] for x in private if x['type']=='mcq'}
+    for x in private:
+        if x['type']=='frq':
+            response[x['id']]={part['id']:'Student-written reasoning' for part in x['parts']}
     result=client.post(f'/api/quizzes/{qid}/submit',json={'responses':response})
-    assert result.status_code==200
+    assert result.status_code==200,result.text
     report=result.json()['report']
-    assert report['graded']+report['manual_needed']==len(private)
-    assert report['percent']==100,report
-    assert report['manual_needed']==sum(x['type']=='short' for x in private)
-    if report['manual_needed']:
-        short=next(x for x in private if x['type']=='short')
-        graded=client.post(f'/api/quizzes/{qid}/selfgrade',json={'scores':{short['id']:False}})
-        assert graded.status_code==200
-        assert graded.json()['report']['manual_needed']==0
+    assert report['graded']==19 and report['percent']==100,report
+    assert report['manual_needed']==2 and report['frq_parts_total']==8
+    frq=next(x for x in private if x['type']=='frq')
+    graded=client.post(f'/api/quizzes/{qid}/selfgrade',json={
+        'scores':{frq['id']:{'a':2}}})
+    assert graded.status_code==200
+    assert graded.json()['report']['frq_points_earned']==2
     assert client.get('/api/progress').status_code==200
     assert client.get('/api/bootstrap').json()['stats']['completed']==1
     assert client.post(f'/api/quizzes/{qid}/submit',json={'responses':{}}).status_code==400
@@ -123,19 +122,14 @@ def test_quiz_answer_secrecy_scoring_and_progress(client):
     assert client.get('/api/issues').json()['issues']
 
 
-def test_cloze_question_is_not_malformed(client):
-    # This note has no colon-definitions, so its deterministic fallback is a cloze.
+def test_objectives_cannot_create_fake_cloze_questions(client):
     note='During photosynthesis the chloroplast converts energy from light into chemical energy that cells can use.\n'
     m=upload(client,text=note)
-    created=client.post('/api/cards/generate',json={'material_ids':[m], 'count':3})
-    assert created.json()['created']>=1
-    card=client.get('/api/bootstrap').json()['cards'][0]
-    assert card['front'].startswith('Complete this source sentence:')
+    generated=client.post('/api/cards/generate',json={'material_ids':[m], 'count':3})
+    assert generated.status_code==400
+    assert not client.get('/api/bootstrap').json()['cards']
     q=client.post('/api/quizzes',json={'types':['matching'],'count':5})
-    assert q.status_code==200,q.text
-    x=q.json()['questions'][0]
-    assert x['type']=='fill' and '____' in x['statement']
-    assert 'answer' not in x
+    assert q.status_code==400
 
 
 def test_study_guides_planner_export_backup(client):
@@ -149,7 +143,7 @@ def test_study_guides_planner_export_backup(client):
     assert client.get('/api/bootstrap').json()['tasks'][0]['done']==1
     exp=client.get('/api/export')
     assert exp.status_code==200 and json.loads(exp.content)['materials'][0]['id']==m
-    b=client.get('/api/backup')
+    b=client.post('/api/backup/download')
     assert b.status_code==200
     z=zipfile.ZipFile(io.BytesIO(b.content))
     assert 'study.sqlite3' in z.namelist()
@@ -173,23 +167,22 @@ def test_ai_question_validation_without_external_call(client,monkeypatch):
     mock={'questions':[{'type':'mcq','prompt':'Which pigment absorbs light?','options':['Chlorophyll','Glucose','NADPH','Carbon dioxide'],
                         'answer':0,'explanation':'The source states that chlorophyll absorbs light.',
                         'source_name':'notes.txt','topic':'Photosynthesis'},
-                        {'type':'multi','prompt':'Select the two descriptions from the source.',
-                        'options':['Chlorophyll absorbs light','Thylakoids are membrane compartments','Sugar is a gas','ATP is sunlight'],
-                        'answer':[0,1],'explanation':'Both statements are supported by the source.',
+                        {'type':'mcq','prompt':'What is one location of light-dependent reactions?',
+                        'options':['Thylakoid membranes','Cytosol','Nucleus','Mitochondrial matrix'],
+                        'answer':0,'explanation':'Light reactions are associated with thylakoids.',
                         'source_name':'notes.txt','topic':'Photosynthesis'}]}
     monkeypatch.setattr(main,'ai_completion',lambda system,user:json.dumps(mock))
-    r=client.post('/api/quizzes',json={'unit_id':u,'generator':'ai','count':5,'types':['mcq','multi'],'difficulty':'challenge','emphasis':'application'})
+    r=client.post('/api/quizzes',json={'unit_id':u,'generator':'ai','count':2,'types':['mcq','multi'],'difficulty':'challenge','emphasis':'application'})
     assert r.status_code==200,r.text
     qs=r.json()['questions']
-    assert len(qs)==2 and all('answer' not in q for q in qs)
+    assert len(qs)==2 and all(q['type']=='mcq' and 'answer' not in q for q in qs)
     private=json.loads(main.item('SELECT question_json FROM quizzes WHERE id=?',(r.json()['id'],))['question_json'])
     correct={q['id']:q['answer'] for q in private}
     sub=client.post(f'/api/quizzes/{r.json()["id"]}/submit',json={'responses':correct})
     assert sub.json()['report']['percent']==100
-    # Wrong source name must fail schema validation, not add imaginary citations.
     mock['questions'][0]['source_name']='nonexistent-book.pdf'
     mock['questions']=mock['questions'][:1]
-    bad=client.post('/api/quizzes',json={'unit_id':u,'generator':'ai','types':['mcq']})
+    bad=client.post('/api/quizzes',json={'unit_id':u,'generator':'ai','count':1,'types':['mcq']})
     assert bad.status_code==502
 
 
@@ -218,7 +211,7 @@ def test_saved_guides_survive_reloads_and_export(client):
 
 
 def test_specific_source_flashcards(client):
-    u=unit(client)
+    u=client.post('/api/units',json={'name':'Unit 2'}).json()['id']
     a=upload(client,u,name='first.txt',text='Chlorophyll: Green pigment that absorbs light energy for photosynthesis.')
     b=upload(client,u,name='second.txt',text='Osmosis: Passive diffusion of water across a selectively permeable membrane.')
     generated=client.post('/api/cards/generate',json={'unit_id':u,'material_ids':[b], 'count':10})

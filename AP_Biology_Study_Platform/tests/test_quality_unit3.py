@@ -62,19 +62,18 @@ def test_unit3_quiz_is_real_multiple_choice_not_stitched_source_text(c):
     assert all(0<=x['answer']<4 and x['explanation'] for x in hidden)
     assert all('answer' not in x for x in q['questions'])
 
-def test_unit3_without_mcq_explains_format(c):
+def test_unit3_always_uses_mcq_regardless_of_old_client_types(c):
     u=unit(c,'Unit 3')
-    r=c.post('/api/quizzes',json={'unit_id':u,'count':3,'types':['fill']})
-    assert r.status_code==400
-    assert 'multiple choice' in r.json()['detail'].lower()
+    r=c.post('/api/quizzes',json={'unit_id':u,'count':3,'types':['fill','tf']})
+    assert r.status_code==200,r.text
+    assert len(r.json()['questions'])==3
+    assert all(q['type']=='mcq' for q in r.json()['questions'])
 
-def test_non_unit3_definitions_only_source_recall(c):
+def test_other_units_refuse_unreviewed_mcq_distractors(c):
     u=unit(c,'Unit 2')
     upload(c,u,'Osmosis: The passive movement of water across a selectively permeable membrane.\nDiffusion: The net movement of particles down a concentration gradient.','unit2-notes.txt')
     r=c.post('/api/cards/generate',json={'unit_id':u,'count':3})
     assert r.status_code==200 and r.json()['created']==2,r.text
     q=c.post('/api/quizzes',json={'unit_id':u,'count':2,'types':['mcq','fill','tf']})
-    assert q.status_code==200,q.text
-    assert all(x['type']=='fill' for x in q.json()['questions'])
-    r=c.post('/api/quizzes',json={'unit_id':u,'count':1,'types':['mcq']})
-    assert r.status_code==400
+    assert q.status_code==400,q.text
+    assert 'question bank' in q.json()['detail'].lower() or 'multiple-choice' in q.json()['detail'].lower()
