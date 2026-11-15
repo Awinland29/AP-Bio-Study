@@ -28,6 +28,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Request
 from fastapi.responses import FileResponse, JSONResponse, Response, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from study_bank3 import is_unit3, looks_like_objective, build_questions, build_cards
 
 ROOT = Path(__file__).resolve().parent
 DATA = Path(os.environ.get('APBIO_DATA_DIR', ROOT / 'data')).resolve()
@@ -402,6 +403,8 @@ def candidates(rows, max_count=140):
                 continue
             if term.lower() in STOPWORDS or len(term.split()) > 11:
                 continue
+            if looks_like_objective(term, definition):
+                continue
             if normalize(term) in seen:
                 continue
             seen.add(normalize(term))
@@ -694,25 +697,36 @@ def search(q:str=''):
 
 @app.post('/api/cards/generate')
 def generate_cards(body:dict):
-    rows=material_selection(body)
-    if not rows:die('Upload or select materials before generating cards.')
     count=max(1,min(80,int(body.get('count',20))))
-    cand=candidates(rows,max_count=count)
-    if len(cand)<count:
-        cand+=source_sentences(rows,max_count=count-len(cand))
-    if not cand:die('The selected files contain no usable text. Try a text-based PDF, notes, DOCX or PPTX.')
-    created=[]
+    rows=material_selection(body)
+    unit_id=body.get('unit_id') or (rows[0]['unit_id'] if rows else None)
+    valid_unit(unit_id)
+    unit_name=(item('SELECT name FROM units WHERE id=?',(unit_id,)) or {}).get('name','') if unit_id else ''
+    supplemental=is_unit3(unit_name,rows) and (bool(unit_id) or body.get('material_ids') is not None or len(rows)==1)
+    if supplemental:
+        proposals=build_cards(count,unit_id)
+    else:
+        if not rows:die('Choose materials before generating cards.')
+        facts=candidates(rows,max_count=count)
+        if not facts:
+            die('The selected file contains learning objectives but no supported answers or definitions. Upload lesson notes with explanations. Biosphere will not turn random words into flashcards.')
+        proposals=[{'front':f['term'],'back':f['definition'],
+                    'unit_id':f['unit_id'],'material_id':f['material_id'],
+                    'topic':f['topic'],'excerpt':f['excerpt']} for f in facts]
     existing={normalize(x['front']+'|'+x['back']) for x in items('SELECT front,back FROM cards')}
+    created=[]
     with db() as c:
-        for x in cand:
-            front=('Complete this source sentence: '+x['definition'].replace(x['term'],'____',1)) if x.get('cloze') else x['term']
-            back=x['term'] if x.get('cloze') else x['definition']
-            if normalize(front+'|'+back) in existing:continue
+        for x in proposals:
+            front=clean(x['front']); back=clean(x['back'])
+            fingerprint=normalize(front+'|'+back)
+            if not front or not back or fingerprint in existing:continue
             id=rid()
             c.execute('INSERT INTO cards(id,unit_id,material_id,topic,front,back,source_excerpt,created_at,due_at) VALUES (?,?,?,?,?,?,?,?,?)',
                       (id,x['unit_id'],x['material_id'],x['topic'],front,back,x['excerpt'],now(),now()))
-            created.append(id)
-    return {'created':len(created),'ids':created,'note':'Cards use extracted source text; inspect generated wording before relying on it.'}
+            created.append(id);existing.add(fingerprint)
+    note=('Original, supplemental AP Biology Unit 3 review, not verbatim from uploaded objectives.'
+          if supplemental else 'Cards use explicit definitions in uploaded notes; objective statements without answers are skipped.')
+    return {'created':len(created),'ids':created,'note':note}
 
 
 @app.post('/api/cards')
@@ -849,7 +863,7 @@ def create_quiz(body:dict):
     if not cards:
         rows=source_rows(unit_id,ids)
         cs=candidates(rows)
-        if len(cs)<count:cs+=source_sentences(rows,max_count=count-len(cs))
+        # Never blank a random word to manufacture a question from an objective.
         cards=[{'front':('Complete this source sentence: '+x['definition'].replace(x['term'],'____',1)) if x.get('cloze') else x['term'],
                 'back':x['term'] if x.get('cloze') else x['definition'],
                 'unit_id':x['unit_id'],'material_id':x['material_id'],
@@ -861,14 +875,27 @@ def create_quiz(body:dict):
     if generator not in ('local','ai'):die('Unknown quiz generator.')
     if generator=='ai':
         questions=make_ai_questions(body,source_rows(unit_id,ids))
+    elif is_unit3(
+        (item('SELECT name FROM units WHERE id=?',(unit_id,)) or {}).get('name','') if unit_id else '',
+        source_rows(unit_id,ids)) and (bool(unit_id) or ids is not None or len(source_rows(unit_id,ids))==1):
+        try:
+            bank_unit=unit_id or ((source_rows(unit_id,ids) or [{}])[0].get('unit_id'))
+            questions=build_questions(count,requested,bank_unit,rid)
+        except ValueError as exc:die(str(exc))
     else:
-        if not cards:die('No source material is available for questions. Upload a lesson or create cards.')
+        # Without a validated answer key, generated 'true/false', arbitrary
+        # distractors, and random multi-select options mislead students.
+        cards=[c for c in cards if not c['front'].startswith('Complete this source sentence: ')]
+        if not cards:die('No answer-bearing class notes found. Objectives alone do not include answers. Upload explanations or select Unit 3 for original concept practice.')
+        reliable=[t for t in requested if t in ('fill','short','matching')]
+        if not reliable:
+            die('Free source-based practice outside Unit 3 supports fill-in, written, and matching recall. Select one of those formats or enable the AI generator.')
         count=min(count,len(cards))
         target_topics=[]
         if body.get('prioritize_mistakes'):
             profile=progress()['topics']
             target_topics=[r['topic'] for r in profile if r['incorrect']>0 and r['incorrect']>=r['correct']]
-        questions=qbank(cards,mode,requested,count,target_topics)
+        questions=qbank(cards,mode,reliable,count,target_topics)
     id=rid()
     title=clean(body.get('title','')) or ('Practice test' if mode=='test' else 'Practice quiz')
     minutes=max(0,min(180,int(body.get('minutes',0))))
