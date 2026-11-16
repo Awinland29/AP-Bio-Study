@@ -1051,29 +1051,38 @@ def delete_saved_guide(guide_id:str):
 
 @app.post('/api/guides')
 def make_guide(body:dict):
+    """Quality-first guide generation; never turn objectives into random cloze text."""
+    from study_guide_builder import unit3_guide, source_guide
+    mode=body.get('mode','detailed')
+    if mode not in ('concise','detailed','exam'):
+        die('Invalid guide mode.')
     rows=material_selection(body)
-    if not rows:die('Choose materials to build a guide.')
-    mode=body.get('mode','concise')
-    if mode not in ('concise','detailed','exam'):die('Invalid guide mode.')
-    c=candidates(rows,max_count=60 if mode=='detailed' else 25)
-    parts=[f'# AP Biology · {"Detailed guide" if mode=="detailed" else "Exam review sheet" if mode=="exam" else "Quick study guide"}',
-           '',f'Generated from {len(rows)} uploaded source(s): '+', '.join(r['filename'] for r in rows),'',
-           '_This is an extractive outline, not a verified teacher-created answer key. Review each source._','']
-    if c:
-        parts+=['## Key definitions and concepts','']
-        for x in c:parts += [f'**{x["term"]}** — {x["definition"]}',f'  *Source: {x["source_name"]}*','']
+    unit_id=body.get('unit_id') or None
+    valid_unit(unit_id)
+    unit_name=(item('SELECT name FROM units WHERE id=?',(unit_id,)) or {}).get('name','') if unit_id else ''
+    unit3=is_unit3(unit_name,rows) and (bool(unit_id) or body.get('material_ids') is not None or len(rows)==1)
+    if unit3:
+        title,content=unit3_guide(mode,rows)
+        generator='curated'
+        note='Reviewed original Unit 3 explanations; uploaded objectives remain explicitly distinguished from supplemental biology.'
     else:
-        parts+=['## Source excerpts','']
-        for x in source_sentences(rows,15):parts += [f'- {x["definition"]} (*{x["source_name"]}*)']
-    if mode in ('detailed','exam'):
-        parts+=['','## Active recall prompts','']
-        for x in c[:16]:parts += [f'- Explain **{x["term"]}** without looking, then check {x["source_name"]}.']
-    if mode=='exam':parts+=['','## Before the assessment','','- Explain key processes in your own words.','- Practice interpreting graphs and experimental controls.','- Revisit every topic you missed on prior quizzes.']
-    title=parts[0].lstrip('# ')
-    content='\n'.join(parts)
-    gid=store_guide(title,content,rows,body.get('unit_id'),mode,'local')
-    return {'id':gid,'title':title,'markdown':content,'sources':[{'id':m['id'],'filename':m['filename']} for m in rows]}
-
+        if not rows:
+            die('Select uploaded notes or a unit. Unit 3 also has a free original study guide.')
+        facts=candidates(rows,max_count=70)
+        # A phrase fragment is not useful study-guide content.
+        facts=[f for f in facts if len(f['definition'].split())>=6
+               and len(f['term'].split())<=7
+               and not f['definition'].endswith((',',':',';','-'))
+               and not re.search(r'(?i)\b(?:to|the|a|an|in|at|of|with|for|from)\s*$',f['definition'])]
+        try:
+            title,content=source_guide(mode,rows,facts)
+        except ValueError as exc:
+            die(str(exc))
+        generator='local'
+        note='The guide contains only explicit definitions and objectives in selected materials; add explanatory lesson notes for deeper answers.'
+    gid=store_guide(title,content,rows,unit_id,mode,generator)
+    return {'id':gid,'title':title,'markdown':content,'generator':generator,
+            'note':note,'sources':[{'id':m['id'],'filename':m['filename']} for m in rows]}
 
 @app.post('/api/ai/guide')
 def make_ai_guide(body:dict):
