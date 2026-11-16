@@ -1059,6 +1059,8 @@ def make_guide(body:dict):
     rows=material_selection(body)
     unit_id=body.get('unit_id') or None
     valid_unit(unit_id)
+    if body.get('material_ids') is not None and not rows:
+        die('No selected materials belong to this unit. Choose another file or clear the source selection.')
     unit_name=(item('SELECT name FROM units WHERE id=?',(unit_id,)) or {}).get('name','') if unit_id else ''
     unit3=is_unit3(unit_name,rows) and (bool(unit_id) or body.get('material_ids') is not None or len(rows)==1)
     if unit3:
