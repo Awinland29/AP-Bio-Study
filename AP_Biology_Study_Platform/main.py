@@ -94,6 +94,8 @@ def db():
 
 def init():
     with db() as c:
+        c.execute('CREATE TABLE IF NOT EXISTS safety_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+        c.execute('INSERT OR IGNORE INTO safety_meta(key,value) VALUES (?,?)', ('epoch',rid()))
         c.executescript('''
         CREATE TABLE IF NOT EXISTS units (
           id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT DEFAULT '',
@@ -547,6 +549,31 @@ def qbank(cards, mode, requested, count, target_topics=None):
 @app.get('/api/health')
 def health():
     return {'ok':True,'ai_enabled':bool(os.environ.get('OPENAI_API_KEY')) and not (PUBLIC_MODE and WORKSPACE_DATA.get() is not None),'model':AI_MODEL}
+
+
+@app.get('/api/workspace-identity')
+def workspace_identity(request:Request):
+    """A non-secret stable browser-workspace label and server data epoch.
+    The cookie is NEVER revealed; this identifier is not an auth credential.
+    """
+    if not PUBLIC_MODE:
+        key='local'
+    else:
+        owner=request.cookies.get(OWNER_SESSION_COOKIE,'')
+        if owner and secrets.compare_digest(owner,owner_cookie_value()):
+            key='owner'
+        else:
+            guest=request.cookies.get(VISITOR_SESSION_COOKIE,'')
+            if not re.fullmatch(r'[a-f0-9]{48}',guest):
+                die('Browser workspace cookie not yet initialized. Reload and retry.',409)
+            key='visitor-'+hashlib.sha256(guest.encode('ascii')).hexdigest()[:32]
+    with db() as conn:
+        # Legacy backup archives might not have the new metadata table.
+        conn.execute('CREATE TABLE IF NOT EXISTS safety_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+        conn.execute('INSERT OR IGNORE INTO safety_meta(key,value) VALUES (?,?)',('epoch',rid()))
+        epoch=conn.execute("SELECT value FROM safety_meta WHERE key='epoch'").fetchone()[0]
+    return {'workspace_id':key, 'epoch':epoch, 'temporary':PUBLIC_MODE and
+            (str(DATA).startswith('/tmp/') or DATA==Path('/tmp'))}
 
 
 @app.get('/api/bootstrap')
